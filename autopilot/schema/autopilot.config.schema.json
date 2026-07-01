@@ -1,0 +1,271 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/HireAll-ai/autopilot-skills/main/autopilot/schema/autopilot.config.schema.json",
+  "title": "autopilot.config",
+  "description": "Per-project configuration for the portable /autodev, /autoship and /autopilot commands. Committed to the repo so the same command logic works in any project. Generated (and re-generatable with --reconfigure) by the first-run interview in lib/autopilot-config.sh.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "tracker", "git", "commands", "review", "deploy", "qa", "rules"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Config schema version. Bump when the shape changes incompatibly."
+    },
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to this schema for editor validation."
+    },
+    "$comment": {
+      "type": "string",
+      "description": "Optional free-text note (e.g. which plugin consumes this config and how to install it)."
+    },
+
+    "tracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "keyRequired"],
+      "description": "Issue tracker used for ticket keys and status transitions.",
+      "properties": {
+        "type": {
+          "enum": ["jira", "linear", "github", "none"],
+          "description": "Tracker kind. 'none' disables all ticket handling."
+        },
+        "mcp": {
+          "type": "string",
+          "description": "MCP server namespace prefix that exposes the tracker (e.g. 'mcp__jira-server'). Empty/omitted when type is 'none' or the tracker is driven purely via CLI."
+        },
+        "keyPrefix": {
+          "type": "string",
+          "description": "Ticket / branch / commit key prefix (e.g. 'PROJ'). Empty string when the project uses no prefixed keys."
+        },
+        "keyRequired": {
+          "type": "boolean",
+          "description": "When true, a change with no tracker key is a hard stop (create-or-ask); when false, the key is optional."
+        },
+        "shipStatus": {
+          "type": "string",
+          "description": "Status the ticket is moved to on a fully successful ship (e.g. 'In Review'). Omitted when tracker.type is 'none'."
+        },
+        "shipStatusVia": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered intermediate statuses the board may require before shipStatus (e.g. ['In Progress']). Empty when a direct transition exists."
+        }
+      }
+    },
+
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseBranch", "mergeStrategy", "protection"],
+      "description": "Branching, merge strategy and branch-protection facts that gate the merge.",
+      "properties": {
+        "baseBranch": {
+          "type": "string",
+          "description": "Branch PRs target and that auto-deploys (e.g. 'develop' or 'main')."
+        },
+        "branchPattern": {
+          "type": "string",
+          "description": "Template for feature branch names. Placeholders: {key} (tracker key), {slug}.",
+          "default": "{key}-{slug}"
+        },
+        "mergeStrategy": {
+          "enum": ["squash", "merge", "rebase"],
+          "description": "Merge method. 'squash' keeps linear history."
+        },
+        "deleteBranchOnMerge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pass --delete-branch on merge."
+        },
+        "protection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requiredChecks", "strict"],
+          "description": "Autodetected from the base branch's protection (gh api repos/{o}/{r}/branches/{base}/protection).",
+          "properties": {
+            "requiredChecks": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Status checks that must be green to merge (e.g. ['build']). Empty when none are required."
+            },
+            "strict": {
+              "type": "boolean",
+              "description": "required_status_checks.strict — when false a behind branch still merges (no forced sync)."
+            },
+            "requireThreadResolution": {
+              "type": "boolean",
+              "default": false,
+              "description": "required_conversation_resolution — all review threads must be resolved to merge."
+            },
+            "requiredApprovals": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "required_approving_review_count."
+            },
+            "adminBypassAllowed": {
+              "type": "boolean",
+              "default": false,
+              "description": "enforce_admins is OFF → --admin may bypass protection ONLY once every visible check is independently confirmed green."
+            }
+          }
+        }
+      }
+    },
+
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["typecheck"],
+      "description": "Shell commands the pipeline runs. Empty string or omitted = 'this project has no such command; skip the step'. {pkg} in testFilter is replaced with a package name.",
+      "properties": {
+        "install": { "type": "string", "description": "Dependency install (e.g. 'pnpm install --frozen-lockfile')." },
+        "typecheck": { "type": "string", "description": "Type/compile gate that MUST pass before any commit (e.g. 'pnpm type-check'). Set '' if the project has no type-check." },
+        "test": { "type": "string", "description": "Full test command (e.g. 'pnpm test')." },
+        "testFilter": { "type": "string", "description": "Targeted test template with {pkg} placeholder (e.g. 'pnpm --filter {pkg} test')." },
+        "build": { "type": "string", "description": "Production build (e.g. 'pnpm build')." },
+        "dev": { "type": "string", "description": "Local dev server used to warm the app for UI QA (e.g. 'pnpm dev')." },
+        "lint": { "type": ["string", "null"], "description": "Optional lint command, or null." }
+      }
+    },
+
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate"],
+      "description": "Automated PR-review gate and local reviewers.",
+      "properties": {
+        "gate": {
+          "enum": ["greptile", "coderabbit", "github", "none"],
+          "description": "Automated PR reviewer. 'none' skips the review loop."
+        },
+        "skill": {
+          "type": "string",
+          "description": "Skill/command that drives the review loop (e.g. 'greploop'). Omitted when gate is 'none'."
+        },
+        "passBar": {
+          "type": "string",
+          "description": "Threshold the loop holds to (e.g. '5/5'). Free-form; interpreted by the review skill."
+        },
+        "mention": {
+          "type": "string",
+          "description": "Bot mention that re-triggers review when needed (e.g. '@greptileai')."
+        },
+        "localReviewers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Local pre-push reviewers run on the diff (e.g. ['/review', '/codex'])."
+        }
+      }
+    },
+
+    "deploy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger"],
+      "description": "How merging reaches an environment, and how to smoke-test it.",
+      "properties": {
+        "trigger": {
+          "enum": ["merge-to-base", "github-action", "manual", "none"],
+          "description": "'merge-to-base' = merging the base branch auto-deploys; 'none' = no deploy step."
+        },
+        "autoDeploys": {
+          "type": "boolean",
+          "description": "True when the deploy runs automatically off the merge (no manual step)."
+        },
+        "healthcheck": {
+          "type": "string",
+          "description": "URL curled to confirm the environment is up (e.g. 'http://host:8080/api/health')."
+        },
+        "urls": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Named environment URLs used by the canary (e.g. {\"client\":\"...\",\"admin\":\"...\"})."
+        },
+        "canarySkill": {
+          "type": "string",
+          "description": "Skill/command for the post-deploy canary (e.g. '/canary')."
+        },
+        "docsRef": {
+          "type": "string",
+          "description": "Human-readable pointer to the source of truth for these values (e.g. 'CLAUDE.md §Staging Server') so they can be re-derived without trusting this file."
+        },
+        "envSecret": {
+          "type": "string",
+          "description": "Name of the env var / CI secret holding deploy credentials (e.g. 'DEPLOY_SSH_KEY'). Never the value itself."
+        }
+      }
+    },
+
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Browser QA / e2e skills and video recording of the e2e run.",
+      "properties": {
+        "browseSkill": { "type": "string", "description": "Browser-driving skill (e.g. '/browse')." },
+        "qaSkill": { "type": "string", "description": "Heuristic bug-hunting QA skill (e.g. '/qa')." },
+        "qaOnlySkill": { "type": "string", "description": "Report-only QA skill for post-merge staging (e.g. '/qa-only')." },
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Opt-in video recording of the --e2e scenario run.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Record video during --e2e runs."
+            },
+            "format": {
+              "enum": ["mp4", "gif", "webm"],
+              "default": "mp4",
+              "description": "Preferred output. mp4/gif need ffmpeg; without ffmpeg the recorder keeps webm regardless."
+            },
+            "surface": {
+              "enum": ["context", "pr-gif", "both", "none"],
+              "default": "context",
+              "description": "Where the artifact goes: 'context' = write to .context/ for the Conductor chat; 'pr-gif' = also embed a gif in the PR body; 'both'; 'none' = record but don't surface."
+            },
+            "dir": {
+              "type": "string",
+              "default": ".context/video",
+              "description": "Directory (repo-relative) the recorder writes into."
+            },
+            "maxSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "default": 90,
+              "description": "Hard cap on a single scenario recording to keep artifacts small."
+            }
+          }
+        }
+      }
+    },
+
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where the repo's own engineering rules and planning artifacts live. The commands defer to these instead of embedding project rules.",
+      "properties": {
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Rule docs the agent must obey (e.g. ['CLAUDE.md','docs/development.md']). CLAUDE.md/AGENTS.md are the primary source."
+        },
+        "planDir": {
+          "type": "string",
+          "description": "Where task-by-task plans are written (e.g. 'docs/superpowers/plans')."
+        },
+        "specDir": {
+          "type": "string",
+          "description": "Where specs for large features are written (e.g. 'docs/superpowers/specs')."
+        },
+        "prTemplate": {
+          "type": "string",
+          "description": "Path to the PR template that must be populated (e.g. '.github/pull_request_template.md')."
+        }
+      }
+    }
+  }
+}

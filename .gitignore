@@ -1,0 +1,5 @@
+# Recorder deps installed on demand (npm i playwright) — never committed.
+node_modules/
+package.json
+package-lock.json
+.context/

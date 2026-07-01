@@ -1,0 +1,9 @@
+{
+  "name": "autopilot",
+  "version": "1.0.0",
+  "description": "Project-independent autonomous-dev commands (/autodev, /autoship, /autopilot). Project facts live in a committed .claude/autopilot.config.json (autodetected on first run); browser e2e can be recorded to video.",
+  "author": { "name": "HireAll-ai" },
+  "homepage": "https://github.com/HireAll-ai/autopilot-skills",
+  "license": "MIT",
+  "keywords": ["autonomous-agent", "ci", "cd", "pr", "e2e", "video", "workflow"]
+}

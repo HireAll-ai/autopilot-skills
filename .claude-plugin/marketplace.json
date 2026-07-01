@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "autopilot-skills",
+  "description": "Project-independent autonomous-dev commands: /autodev, /autoship, /autopilot.",
+  "owner": { "name": "HireAll-ai" },
+  "plugins": [
+    {
+      "name": "autopilot",
+      "source": "./autopilot",
+      "category": "workflow",
+      "description": "/autodev (plan→build→test→draft PR), /autoship (review→merge→deploy→ticket), /autopilot (both, no stop). Every project-specific fact lives in a committed .claude/autopilot.config.json (autodetected on first run); browser e2e runs can be recorded to video."
+    }
+  ]
+}
