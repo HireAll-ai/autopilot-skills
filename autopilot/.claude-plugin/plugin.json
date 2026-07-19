@@ -1,9 +1,21 @@
 {
   "name": "autopilot",
-  "version": "1.0.0",
-  "description": "Project-independent autonomous-dev commands (/autodev, /autoship, /autopilot). Project facts live in a committed .claude/autopilot.config.json (autodetected on first run); browser e2e can be recorded to video.",
-  "author": { "name": "HireAll-ai" },
+  "version": "1.1.0",
+  "description": "Project-independent autonomous-dev commands (/autodev, /autoship, /autopilot). Project facts live in a committed .claude/autopilot.config.json (autodetected on first run); browser e2e can be recorded to video. Includes the /factory skill: dispatch tasks to a fabro-based software factory (lane selection, run launch, gate surfacing).",
+  "author": {
+    "name": "HireAll-ai"
+  },
   "homepage": "https://github.com/HireAll-ai/autopilot-skills",
   "license": "MIT",
-  "keywords": ["autonomous-agent", "ci", "cd", "pr", "e2e", "video", "workflow"]
+  "keywords": [
+    "autonomous-agent",
+    "cd",
+    "ci",
+    "e2e",
+    "fabro",
+    "pr",
+    "software-factory",
+    "video",
+    "workflow"
+  ]
 }
