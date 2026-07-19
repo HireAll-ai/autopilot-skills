@@ -9,8 +9,8 @@ source factory/hooks/lib-e2e.sh
 source factory-preview.env
 : "${PREVIEW_URL:?preview-deploy.sh must run first}"
 
-# Namespace artifacts per run when fabro provides the id (spec key decision 5).
-ARTIFACTS_DIR="factory-artifacts${FABRO_RUN_ID:+/$FABRO_RUN_ID}/e2e"
+# Namespace artifacts per run (spec key decision 5); see run_namespace in lib-e2e.sh.
+ARTIFACTS_DIR="factory-artifacts/$(run_namespace)/e2e"
 
 ensure_playwright
 ensure_e2e_specs

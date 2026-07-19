@@ -1,6 +1,6 @@
 # autopilot (plugin)
 
-Project-independent `/autodev`, `/autoship`, `/autopilot`. The command bodies contain **no**
+Project-independent `/init`, `/autodev`, `/autoship`, `/autopilot`. The command bodies contain **no**
 project-specific literals — they read `.claude/autopilot.config.json` (per-repo, committed) at Step 0.0.
 Bundled scripts are referenced via `${CLAUDE_PLUGIN_ROOT}`, so the plugin works from wherever Claude
 Code installs it.
@@ -12,7 +12,22 @@ claude plugin marketplace add HireAll-ai/autopilot-skills
 claude plugin install autopilot@autopilot-skills
 ```
 
-## First run (per repo) — detect + confirm
+## First run (per repo) — `/autopilot:init` (required)
+
+Every repo must be initialized once before the other commands run (they check the
+`.claude/autopilot.init.json` marker and stop otherwise). `/autopilot:init`:
+
+1. verifies **gstack** is installed (installs it if missing) — the factory lanes and QA/review/canary
+   steps delegate to gstack skills (`/qa`, `/cso`, `/design-consultation`, `/document-generate`, …);
+2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
+3. scaffolds the **software factory** via `/factory-init` when the fabro CLI is available;
+4. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
+5. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
+6. writes the `.claude/autopilot.init.json` marker and commits.
+
+Idempotent; flags: `--force`, `--skip-design`, `--skip-docs`, `--skip-factory`.
+
+## Config — detect + confirm
 
 On the first `/autodev` (or `/autopilot`) in a repo with no config, Step 0.0 autodetects and asks you
 to confirm/fill the gaps, then writes + `git add`s `.claude/autopilot.config.json`. Autodetected:

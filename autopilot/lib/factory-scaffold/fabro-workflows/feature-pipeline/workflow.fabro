@@ -1,10 +1,23 @@
-// Software Factory — feature pipeline v1
-// Flow: spec -> [Gate 1: approve spec] -> implement+tests (fix loop)
-//       -> preview deploy + e2e video -> [Gate 2: accept / steer / reject]
-//       -> PR -> cross-review -> fixes -> merge -> prod e2e video
+// Software Factory — feature pipeline v2 (absorbs the old feature-quick lane)
 //
-// Per-product commands live in factory/hooks/*.sh so this graph stays
-// product-agnostic. Validate: `fabro validate factory/workflows/feature-pipeline.dot`
+// Modes — workflow inputs, pass with `-I key=true` on `fabro run`/`fabro create`:
+//   no_spec — skip the spec document (old feature-quick): stage 1 produces
+//             questions.md with only the key implementation decisions.
+//   auto    — autoplan mode: an independent reviewer resolves stage-1 decisions
+//             with the gstack autoplan principles; Gate 1 opens only when
+//             operator-only decisions remain. Gate 2 is ALWAYS human.
+//   The flags compose: `-I no_spec=true -I auto=true` = the reviewer answers the
+//   implementation questions by the principles, escalating only operator-only ones.
+//
+// Flow: spec/clarify -> plan review -> [Gate 1 unless AUTO_APPROVED]
+//       -> implement+tests (fix loop) -> preview deploy -> e2e video
+//       -> exploratory QA (report-only) -> [Gate 2: accept / steer / rework]
+//       -> docs update -> PR -> cross-review -> security review (CSO) -> fixes
+//       -> merge -> prod e2e video -> canary -> summary
+//
+// Ship path (open_pr..summary) is a shared invariant across lanes — after
+// editing it run: ./factory/workflows/lint-ship-path.sh
+// Validate: `fabro validate factory/workflows/feature-pipeline.dot`
 
 digraph FeaturePipeline {
     graph [
@@ -14,7 +27,10 @@ digraph FeaturePipeline {
             *        { model: claude-haiku-4-5; reasoning_effort: low; }
             .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
             .coding  { model: claude-fable-5; reasoning_effort: high; }
-            #review  { model: claude-fable-5; reasoning_effort: high; }
+            .audit   { model: claude-opus-4-8; reasoning_effort: high; }
+            .qa      { model: claude-fable-5; reasoning_effort: medium; }
+            .docs    { model: claude-fable-5; reasoning_effort: low; }
+            #review  { model: claude-opus-4-8; reasoning_effort: high; }
         "
     ]
     rankdir=LR
@@ -22,15 +38,23 @@ digraph FeaturePipeline {
     start [shape=Mdiamond, label="Start"]
     exit  [shape=Msquare, label="Exit"]
 
-    // ---- Stage 1: spec ----------------------------------------------------
+    // ---- Stage 1: spec / clarify ------------------------------------------
     spec [
-        label="Write Spec",
+        label="Write Spec / Clarify",
         class="coding",
         reasoning_effort="high",
-        prompt="Study the codebase and the goal: {{ goal }}. Write spec.md with: (1) what we build, (2) how it looks (UX, states, copy), (3) how it works (data flow, APIs, edge cases), (4) implementation plan, (5) a 'Key decisions' section listing every choice you cannot make alone (tradeoffs, UX alternatives, naming, pricing-like decisions) with your recommendation for each. For features with a UI, also produce design.html — a self-contained static mockup of the key screens and states (inline CSS, no build step) — and reference it from spec.md so the operator can open it in a browser before approving. If this is a revision loop, the operator's feedback from the approval gate is in the conversation context — address every point of it. IMPORTANT: your final message is what the operator sees at the approval gate — end with an operator digest: a 5-10 bullet summary of the spec, the complete 'Key decisions' list with your recommendations, and the paths spec.md / design.html."
+        prompt="MODE: no_spec={{ inputs.no_spec | default('false') }}. Study the codebase and the goal: {{ goal }}. If no_spec is false: write spec.md with (1) what we build, (2) how it looks (UX, states, copy — follow DESIGN.md if it exists), (3) how it works (data flow, APIs, edge cases), (4) implementation plan, (5) a 'Key decisions' section listing every choice you cannot make alone (tradeoffs, UX alternatives, naming, pricing-like decisions) with your recommendation for each. For features with a UI also produce design.html — a self-contained static mockup of the key screens and states (inline CSS, no build step) — and reference it from spec.md. If no_spec is true: do NOT write a spec — write questions.md instead, listing only the 2-6 implementation decisions you cannot responsibly make alone (API/data-model shape, UX placement, naming, integration and dependency choices, tradeoffs with lasting consequences); for each give the question, your recommendation, and its consequence in one line; end the file with a 3-5 line plan sketch. In both modes: if this is a revision loop, the operator's feedback from the gate is in the conversation context — address every point of it. IMPORTANT: end your final message with an operator digest — a 5-10 bullet summary, the complete list of open decisions with your recommendations, and the paths of the files you wrote."
     ]
 
-    gate_spec [shape=hexagon, label="Gate 1: Approve Spec"]
+    // ---- Stage 1.5: plan review (autoplan) --------------------------------
+    plan_review [
+        label="Plan Review (autoplan)",
+        class="audit",
+        prompt="MODE: auto={{ inputs.auto | default('false') }}. Read the stage-1 contract from disk: spec.md and design.html if present, otherwise questions.md. If auto is false: do not review — re-emit the operator digest for the gate (5-10 summary bullets, every open decision with its recommendation, file paths) and end with the word NEEDS_OPERATOR on its own line. If auto is true: you are an independent plan reviewer with fresh eyes. Review the contract against the codebase, then resolve every auto-decidable open decision using the autoplan principles: (1) choose completeness — cover more edge cases; (2) boil lakes — include blast-radius fixes when under ~5 files and no new infra; (3) pragmatic — the cleaner of two equal options, 5 seconds not 5 minutes; (4) DRY — reuse what exists, reject duplication; (5) explicit over clever — what a new contributor reads in 30 seconds; (6) bias toward action. Write decisions.md recording each resolution with a one-line rationale, and update the contract file's decisions accordingly. NEVER auto-decide: data models and migrations, auth and permissions, payments and pricing, externally visible APIs or naming with lasting consequences, product premises, or pure taste calls where reasonable people differ. If any such decision remains, end with an operator digest covering ONLY the remaining decisions plus a one-line list of what you auto-decided, then the word NEEDS_OPERATOR on its own line. If none remain, end with a digest of the auto-decisions, then the word AUTO_APPROVED on its own line. Never write AUTO_APPROVED in any other circumstance."
+    ]
+    auto_gate [shape=diamond, label="Auto-approved?"]
+
+    gate_spec [shape=hexagon, label="Gate 1: Approve Spec / Details"]
 
     // ---- Stage 2: autonomous implementation ------------------------------
     subgraph cluster_impl {
@@ -40,12 +64,12 @@ digraph FeaturePipeline {
             label="Implement",
             class="coding",
             max_visits=6,
-            prompt="Implement spec.md exactly. Follow existing repo conventions. Commit in small increments. If the operator left steering feedback at an acceptance gate, it is in the conversation context — apply it first."
+            prompt="Implement the approved contract. If spec.md exists, implement it exactly; if instead questions.md exists (no-spec mode), the contract is the goal plus the decisions agreed at Gate 1. In both cases apply decisions.md if present (auto-resolved decisions); operator corrections from the gate override recommendations. Before writing code, read factory/learnings.md and honor its Active rules. Follow existing repo conventions and DESIGN.md if it exists. Commit in small increments. If the operator left steering feedback at an acceptance gate, it is in the conversation context — apply it first."
         ]
         write_tests [
             label="Write Tests",
             class="coding",
-            prompt="Write tests covering the spec's acceptance criteria and edge cases. Match the repo's existing test style. Also author/update Playwright acceptance scenarios in e2e/*.spec.* — one test per acceptance criterion, baseURL-relative navigation (page.goto('/')); every test carries a description annotation (2-3 sentences: what the user does, what is verified — shown next to that test's video), and e2e/README.md holds the narrative: feature logic, scenario map, what's out of scope. Do not configure video or browsers, the factory config forces recording."
+            prompt="Write tests covering the contract's acceptance criteria (spec.md or the agreed decisions) and edge cases. Match the repo's existing test style. Also author/update Playwright acceptance scenarios in e2e/*.spec.* — one test per acceptance criterion, baseURL-relative navigation (page.goto('/')); every test carries a description annotation (2-3 sentences: what the user does, what is verified — shown next to that test's video), and e2e/README.md holds the narrative: feature logic, scenario map, what's out of scope. Do not configure video or browsers, the factory config forces recording."
         ]
     }
 
@@ -70,10 +94,22 @@ digraph FeaturePipeline {
         script="./factory/hooks/e2e-video.sh",
         timeout="1800s"
     ]
+    qa_explore [
+        label="Exploratory QA",
+        class="qa",
+        max_visits=4,
+        prompt="Report-only exploratory QA of the preview deploy (gstack /qa methodology; the preview URL is in the run context — ACCEPTANCE ARTIFACTS block). Use the browser and go off-script: flows adjacent to the change, edge inputs, empty and error states, console errors, obvious visual breakage against DESIGN.md if it exists. Do NOT fix or commit anything. Write findings to qa-report.md, or the single word CLEAN there if none. IMPORTANT: your final message is what the operator sees at Gate 2 — lead with a QA digest (severity-ordered findings with repro steps, or 'QA CLEAN'), then repeat the acceptance artifacts: preview URL and video paths from the e2e stage."
+    ]
 
     gate_accept [shape=hexagon, label="Gate 2: Accept Feature"]
 
     // ---- Stage 4: ship ----------------------------------------------------
+    docs_update [
+        label="Update Docs",
+        class="docs",
+        max_visits=3,
+        prompt="The feature is accepted. Update project documentation to match what ships (gstack /document-release methodology): README and docs/ sections invalidated by this change, e2e/README.md scenario map, and factory/config.env comments if commands changed. Add a CHANGELOG.md entry (date, lane, one-line goal). Apply the Diataxis lens: if the shipped feature has no docs at all, add a minimal reference or how-to section — do not rewrite unrelated docs. If everything is already current, say so and change nothing. Commit any changes."
+    ]
     open_pr [
         label="Open PR",
         shape=parallelogram,
@@ -82,13 +118,18 @@ digraph FeaturePipeline {
     review [
         id="review",
         label="Cross Review",
-        prompt="Adversarially review the full diff of this branch against the default branch. Hunt for correctness bugs, security issues, and spec deviations. Write confirmed findings to review.md; write 'CLEAN' there if none."
+        prompt="Perform a thorough independent code review of this branch's full diff against the default branch: correctness bugs, security issues (auth, input validation, path handling, secret hygiene), and deviations from the contract (spec.md / questions.md / decisions.md and gate decisions). Write confirmed findings to review.md; leave it without findings if there are none. Do not write the word CLEAN anywhere — the security review after you owns that verdict."
+    ]
+    security_review [
+        label="Security Review (CSO)",
+        class="audit",
+        prompt="Independent security audit of this branch's full diff against the default branch (gstack /cso methodology): OWASP Top 10 + STRIDE. High-confidence findings only, each with a concrete exploit scenario — no theoretical noise. Append confirmed findings to review.md under a 'Security' heading. Then read review.md as a whole: if it contains no findings from either review, end with the single word CLEAN on its own line; otherwise end with the findings count and severities. Never write CLEAN in any other circumstance."
     ]
     apply_fixes [
         label="Apply Fixes",
         class="coding",
         max_visits=3,
-        prompt="Apply every confirmed finding from review.md. Keep tests green. Commit fixes."
+        prompt="Apply every confirmed finding from review.md — correctness and security alike. Keep tests green. Commit fixes."
     ]
     fixes_gate [shape=diamond, label="Review clean?"]
     merge [
@@ -103,31 +144,45 @@ digraph FeaturePipeline {
         script="./factory/hooks/prod-e2e-video.sh",
         timeout="1800s"
     ]
+    canary [
+        label="Canary",
+        shape=parallelogram,
+        script="./factory/hooks/canary.sh",
+        max_retries=0,
+        timeout="1800s"
+    ]
+    canary_gate [shape=diamond, label="Canary healthy?"]
     summary [
         label="Run Summary",
         shape=tab,
         class="cheap",
-        prompt="Summarize this run for the operator: what shipped, key decisions taken, artifacts (preview URL, videos), and anything needing follow-up."
+        prompt="Summarize this run for the operator: what shipped, the mode (spec or no-spec, auto or gated), key decisions taken (including auto-decided ones from decisions.md), QA and security findings and how they were resolved, docs updated, artifacts (preview URL, videos, canary report), and anything needing follow-up. If the canary failed, lead with CANARY FAILED and recommend an immediate revert or a bugfix-express run."
     ]
 
     // ---- Edges ------------------------------------------------------------
-    start -> spec -> gate_spec
+    start -> spec -> plan_review -> auto_gate
+    auto_gate -> implement [label="Auto", condition="context.log contains AUTO_APPROVED"]
+    auto_gate -> gate_spec [label="Operator"]
     gate_spec -> implement [label="[A] Approve"]
+    gate_spec -> implement [label="[C] Approve with corrections"]
     gate_spec -> spec      [label="[R] Revise"]
 
     implement -> write_tests -> run_tests -> tests_gate
     tests_gate -> preview_deploy [label="Pass", condition="outcome=succeeded"]
     tests_gate -> implement      [label="Fix"]
 
-    preview_deploy -> e2e_video -> gate_accept
-    gate_accept -> open_pr   [label="[A] Accept"]
-    gate_accept -> implement [label="[S] Steer"]
-    gate_accept -> spec      [label="[R] Rework Spec"]
+    preview_deploy -> e2e_video -> qa_explore -> gate_accept
+    gate_accept -> docs_update [label="[A] Accept"]
+    gate_accept -> implement   [label="[S] Steer"]
+    gate_accept -> spec        [label="[R] Rework Spec"]
 
-    open_pr -> review -> fixes_gate
+    docs_update -> open_pr -> review -> security_review -> fixes_gate
     fixes_gate -> merge       [label="Clean", condition="context.log contains CLEAN"]
     fixes_gate -> apply_fixes [label="Fix"]
     apply_fixes -> run_tests  [label="Re-verify", loop_restart=true]
 
-    merge -> prod_e2e -> summary -> exit
+    merge -> prod_e2e -> canary -> canary_gate
+    canary_gate -> summary [label="Healthy", condition="outcome=succeeded"]
+    canary_gate -> summary [label="Failed"]
+    summary -> exit
 }

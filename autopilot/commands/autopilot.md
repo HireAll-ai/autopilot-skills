@@ -23,6 +23,14 @@ check left that exercises the deployed build; the CI / auto-reviewer / canary ha
 Pipeline: brainstorm/spec → **`/autopilot`** = autodev Steps 0–5 (draft PR, **no stop**) → autoship
 Steps 0–6 (ready → review loop → checks → merge → canary → QA → ticket ship-status) → one combined report.
 
+## Init check (runs before Step 0.0)
+
+```bash
+test -f .claude/autopilot.init.json || echo "NOT_INITIALIZED"
+```
+- `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack, config,
+  factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
+
 ## Step 0.0 — Load project config (ALWAYS FIRST)
 
 ```bash

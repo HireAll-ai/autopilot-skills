@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "autopilot-skills",
-  "description": "Project-independent autonomous-dev commands: /autodev, /autoship, /autopilot, /factory, /factory-init.",
+  "description": "Project-independent autonomous-dev commands: /init, /autodev, /autoship, /autopilot, /factory, /factory-init.",
   "owner": {
     "name": "HireAll-ai"
   },
@@ -10,7 +10,7 @@
       "name": "autopilot",
       "source": "./autopilot",
       "category": "workflow",
-      "description": "/autodev (plan→build→test→draft PR), /autoship (review→merge→deploy→ticket), /autopilot (both, no stop). Every project-specific fact lives in a committed .claude/autopilot.config.json (autodetected on first run); browser e2e runs can be recorded to video. /factory dispatches tasks to a fabro-based software factory; /factory-init scaffolds it into any repo."
+      "description": "/init (one-time repo bootstrap: gstack, DESIGN.md, baseline docs — required), /autodev (plan→build→test→draft PR), /autoship (review→merge→deploy→ticket), /autopilot (both, no stop). Every project-specific fact lives in a committed .claude/autopilot.config.json (autodetected on first run); browser e2e runs can be recorded to video. /factory dispatches tasks to a fabro-based software factory (QA/CSO/docs/canary stages in the lanes); /factory-init scaffolds it into any repo."
     }
   ]
 }

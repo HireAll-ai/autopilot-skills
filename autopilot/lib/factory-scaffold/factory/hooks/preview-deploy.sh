@@ -11,7 +11,8 @@ case "${FACTORY_PREVIEW_PLATFORM:-coolify}" in
   local)
     # Pilot mode: run the dev server on this machine, no deploy platform needed.
     : "${FACTORY_DEV_CMD:?set FACTORY_DEV_CMD in factory/config.env}"
-    PORT="${FACTORY_PREVIEW_PORT:-3100}"
+    # Exported so the dev server child process binds the same port we poll.
+    export PORT="${FACTORY_PREVIEW_PORT:-3100}"
     # Namespace artifacts per run when fabro provides the id (spec key decision 5).
     ARTIFACTS_DIR="factory-artifacts${FABRO_RUN_ID:+/$FABRO_RUN_ID}"
     mkdir -p "$ARTIFACTS_DIR"

@@ -51,11 +51,20 @@ digraph BugfixExpress {
         timeout="1800s"
     ]
 
+    canary [
+        label="Canary",
+        shape=parallelogram,
+        script="./factory/hooks/canary.sh",
+        max_retries=0,
+        timeout="1800s"
+    ]
+    canary_gate [shape=diamond, label="Canary healthy?"]
+
     summary [
         label="Run Summary",
         shape=tab,
         class="cheap",
-        prompt="Summarize: the bug, root cause in one line, the fix, the repro test path, prod smoke result. If the run escalated, lead with ESCALATED, quote triage.md, and recommend a bugfix-deep run."
+        prompt="Summarize: the bug, root cause in one line, the fix, the repro test path, prod smoke and canary results. If the run escalated, lead with ESCALATED, quote triage.md, and recommend a bugfix-deep run. If prod smoke or the canary failed, lead with SMOKE FAILED or CANARY FAILED and recommend a revert or an immediate follow-up fix."
     ]
 
     // ---- Edges ------------------------------------------------------------
@@ -67,5 +76,8 @@ digraph BugfixExpress {
     tests_gate -> open_pr [label="Pass", condition="outcome=succeeded"]
     tests_gate -> fix     [label="Fix more"]
 
-    open_pr -> merge -> prod_smoke -> summary -> exit
+    open_pr -> merge -> prod_smoke -> canary -> canary_gate
+    canary_gate -> summary [label="Healthy", condition="outcome=succeeded"]
+    canary_gate -> summary [label="Failed"]
+    summary -> exit
 }

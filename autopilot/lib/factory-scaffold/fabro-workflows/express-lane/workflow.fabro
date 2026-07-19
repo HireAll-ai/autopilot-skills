@@ -46,12 +46,20 @@ digraph ExpressLane {
         script="./factory/hooks/prod-e2e-video.sh",
         timeout="1800s"
     ]
+    canary [
+        label="Canary",
+        shape=parallelogram,
+        script="./factory/hooks/canary.sh",
+        max_retries=0,
+        timeout="1800s"
+    ]
+    canary_gate [shape=diamond, label="Canary healthy?"]
 
     summary [
         label="Run Summary",
         shape=tab,
         class="cheap",
-        prompt="Summarize for the operator: what changed, PR link, prod smoke result and video path. If the run escalated instead of merging, lead with ESCALATED, quote escalate.md, and recommend which lane to rerun in (iterate-lane or feature-pipeline). If prod smoke failed, lead with SMOKE FAILED and recommend an immediate bugfix-express run or a revert."
+        prompt="Summarize for the operator: what changed, PR link, prod smoke result and video path, canary result. If the run escalated instead of merging, lead with ESCALATED, quote escalate.md, and recommend which lane to rerun in (iterate-lane or feature-pipeline, possibly with -I no_spec=true). If prod smoke or the canary failed, lead with SMOKE FAILED or CANARY FAILED and recommend an immediate bugfix-express run or a revert."
     ]
 
     // ---- Edges ------------------------------------------------------------
@@ -63,5 +71,8 @@ digraph ExpressLane {
     tests_gate -> open_pr   [label="Pass", condition="outcome=succeeded"]
     tests_gate -> implement [label="Fix"]
 
-    open_pr -> merge -> prod_smoke -> summary -> exit
+    open_pr -> merge -> prod_smoke -> canary -> canary_gate
+    canary_gate -> summary [label="Healthy", condition="outcome=succeeded"]
+    canary_gate -> summary [label="Failed"]
+    summary -> exit
 }

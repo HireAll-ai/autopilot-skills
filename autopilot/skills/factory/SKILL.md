@@ -11,6 +11,11 @@ building; the operator answers the gates.
 
 ## 0. Preflight (this repo, this machine)
 
+0. Initialized? `.claude/autopilot.init.json` must exist. If not — **stop** and
+   tell the user to run `/autopilot:init` first (verifies/installs gstack,
+   scaffolds the factory, bootstraps DESIGN.md + baseline docs). The lanes
+   delegate to gstack skills (/qa, /cso, /document-release), so dispatching
+   without init produces degraded runs.
 1. Factory scaffold present? `.fabro/workflows/` and `factory/` must exist in
    the repo root. If absent — this repo is not factory-enabled: offer to run
    `/factory-init` (scaffolds lanes, hooks, and e2e machinery from the plugin).
@@ -24,11 +29,15 @@ building; the operator answers the gates.
 
 1. Dictated tweak, wrong result costs only a rerun, no data/auth/payments → `express-lane`
 2. "Know it right when I click it" (UX/feel) → `iterate-lane`
-3. New capability, expensive-to-undo decisions, or 30+ min autonomous work → `feature-pipeline`
-   — with the `--no-spec` flag (or wording like «без спеки», "skip the spec")
-   → `feature-quick`: no spec document; the agent asks only the key
-   implementation questions (with recommendations) at a single details gate,
-   then builds autonomously. Same preview/e2e/accept/review/ship path.
+3. New capability, expensive-to-undo decisions, or 30+ min autonomous work → `feature-pipeline`.
+   Two composable input flags (the old `feature-quick` lane is merged in here):
+   - user says «без спеки» / "skip the spec" / --no-spec → add `-I no_spec=true`:
+     no spec document; the agent asks only the key implementation questions
+     (with recommendations) at a single details gate.
+   - user says «не хочу читать спеку» / "auto-approve the plan" / --auto → add
+     `-I auto=true`: an independent autoplan reviewer resolves the plan
+     decisions itself; Gate 1 opens only for operator-only decisions
+     (data model, auth, payments, public APIs, taste). Gate 2 stays human.
 4. Bug, cause obvious + reproducible → `bugfix-express`; cause unclear / wide blast radius → `bugfix-deep`
 
 Tell the user which lane you picked and why (one sentence). If genuinely
@@ -37,7 +46,8 @@ ambiguous, ask with the two candidate lanes as options.
 ## 2. Launch
 
 ```bash
-fabro create .fabro/workflows/<lane>/workflow.toml --goal "<task, specific and testable>"
+fabro create .fabro/workflows/<lane>/workflow.toml --goal "<task, specific and testable>" \
+  [-I no_spec=true] [-I auto=true]     # feature-pipeline modes only
 fabro start <run-id>
 ```
 

@@ -36,25 +36,25 @@ export default class FactoryReporter {
   onEnd() {
     fs.mkdirSync(this.outDir, { recursive: true });
 
-    let md = '# E2E видео — что демонстрирует каждый ролик\n\n';
+    let md = '# E2E videos — what each recording demonstrates\n\n';
     const narrativePath = path.join('e2e', 'README.md');
     if (fs.existsSync(narrativePath)) {
-      md += '## Логика фичи и тестирования\n\n';
+      md += '## Feature and testing narrative\n\n';
       md += fs.readFileSync(narrativePath, 'utf8').trim() + '\n\n---\n\n';
     }
-    md += '## Сценарии\n\n';
+    md += '## Scenarios\n\n';
 
     for (const e of this.entries) {
       const mark = e.status === 'passed' ? '✅' : e.status === 'skipped' ? '⏭️' : '❌';
       md += `### ${mark} ${e.title}\n\n`;
-      md += (e.description || '_нет description-аннотации — смотри название теста_') + '\n\n';
-      md += `Файл: \`${e.file}\` · статус: ${e.status} · ${Math.round(e.durationMs / 1000)}s\n\n`;
+      md += (e.description || '_no description annotation — see the test title_') + '\n\n';
+      md += `File: \`${e.file}\` · status: ${e.status} · ${Math.round(e.durationMs / 1000)}s\n\n`;
       for (const v of e.videos) {
-        md += `Видео: \`${path.relative(process.cwd(), v)}\`\n\n`;
+        md += `Video: \`${path.relative(process.cwd(), v)}\`\n\n`;
         try {
           fs.writeFileSync(
             path.join(path.dirname(v), 'DESCRIPTION.md'),
-            `# ${e.title}\n\n${e.description || '(см. название теста)'}\n\nСтатус: ${e.status}\nФайл теста: ${e.file}\n`,
+            `# ${e.title}\n\n${e.description || '(see the test title)'}\n\nStatus: ${e.status}\nTest file: ${e.file}\n`,
           );
         } catch {
           /* sidecar is best-effort */

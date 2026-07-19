@@ -7,7 +7,7 @@ source factory/hooks/lib-e2e.sh
 
 : "${FACTORY_PROD_URL:?set FACTORY_PROD_URL per product}"
 
-ARTIFACTS_DIR="factory-artifacts${FABRO_RUN_ID:+/$FABRO_RUN_ID}/prod"
+ARTIFACTS_DIR="factory-artifacts/$(run_namespace)/prod"
 
 ensure_playwright
 ensure_e2e_specs

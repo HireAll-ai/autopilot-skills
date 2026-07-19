@@ -1,11 +1,18 @@
-// Software Factory — iterate lane
+// Software Factory — iterate lane v2
 // For "I'll know it when I see it" work: no detailed spec upfront.
-// The loop IS the spec: build increment -> preview -> walkthrough video ->
-// operator feedback ... repeated until the operator answers Done, then the
-// ship path runs once (tests written against the settled behavior, review,
-// merge). The last round's video doubles as the acceptance artifact; prod
-// e2e video still runs after merge.
+// The loop IS the spec: build increment (with design variants on unsettled
+// visual work, gstack design-shotgun style) -> preview -> walkthrough video ->
+// operator feedback ... repeated until the operator answers Done. Then the
+// ship path runs once: tests pinned against the settled behavior, a fresh
+// preview redeploy, exploratory QA (fix loop), docs update, PR, cross-review +
+// security review, merge, prod e2e, canary. The last round's video doubles as
+// the acceptance artifact.
 //
+// Taste memory: operator design feedback accumulates in factory/design-taste.md
+// and is honored in every later round (and every later run of this lane).
+//
+// Ship path (open_pr..summary) is a shared invariant across lanes — after
+// editing it run: ./factory/workflows/lint-ship-path.sh
 // Validate: `fabro validate factory/workflows/iterate-lane.dot`
 
 digraph IterateLane {
@@ -16,6 +23,9 @@ digraph IterateLane {
             *        { model: claude-haiku-4-5; reasoning_effort: low; }
             .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
             .coding  { model: claude-fable-5; reasoning_effort: high; }
+            .audit   { model: claude-opus-4-8; reasoning_effort: high; }
+            .qa      { model: claude-fable-5; reasoning_effort: medium; }
+            .docs    { model: claude-fable-5; reasoning_effort: low; }
             #review  { model: claude-fable-5; reasoning_effort: high; }
         "
     ]
@@ -32,7 +42,7 @@ digraph IterateLane {
             label="Build Increment",
             class="coding",
             max_visits=20,
-            prompt="Goal: {{ goal }}. There is no detailed spec — build the smallest coherent version the operator can react to in a browser. On later visits the operator's feedback from the iterate gate is in the conversation context: apply ALL of it and nothing else; do not expand scope on your own. Keep the existing test suite green. Commit each round. End every visit with a short digest: what changed this round, what to look at first on the preview, open questions."
+            prompt="Goal: {{ goal }}. There is no detailed spec — build the smallest coherent version the operator can react to in a browser. Follow DESIGN.md if it exists, and factory/design-taste.md (accumulated operator taste) if it exists, and honor the Active rules in factory/learnings.md (accumulated engineering learnings from past runs and PR reviews) if it exists. DESIGN ROUNDS (gstack design-shotgun style): when the work is visual and the direction is not yet settled — typically round 1, or when the operator asks for options — also generate 3-4 self-contained static design variants (inline CSS, no build step) exploring genuinely different directions, into factory-artifacts/$FABRO_RUN_ID/round-variants/ (the FABRO_RUN_ID env var is set in your shell; fall back to factory-artifacts/manual/) and list their paths in your digest so the operator can open them next to the preview. TASTE MEMORY: whenever operator feedback expresses a design preference — a picked variant, a rejected direction, tone words — append a one-line dated note to factory/design-taste.md and honor the accumulated notes in every later round. On later visits the operator's feedback from the iterate gate is in the conversation context: apply ALL of it and nothing else; do not expand scope on your own. Keep the existing test suite green. Commit each round. End every visit with a short digest: what changed this round, what to look at first on the preview, design variant paths if any, open questions."
         ]
         write_tests [
             label="Write Tests",
@@ -72,26 +82,65 @@ digraph IterateLane {
         max_retries=0
     ]
     final_tests_gate [shape=diamond, label="Tests green?"]
+    qa_preview [
+        label="QA Preview Deploy",
+        shape=parallelogram,
+        script="./factory/hooks/preview-deploy.sh",
+        timeout="900s"
+    ]
+    qa_explore [
+        label="Exploratory QA",
+        class="qa",
+        max_visits=4,
+        prompt="Exploratory QA of the settled behavior against the fresh preview deploy (gstack /qa methodology; the preview URL is in the run context). The accepted look and behavior are the contract — do not question them; hunt functional bugs off-script: flows adjacent to the change, edge inputs, empty and error states, console errors. Do not fix anything yourself. Write confirmed bugs with repro steps to qa-report.md; if there are none, end with the single word CLEAN on its own line. Never write CLEAN in any other circumstance."
+    ]
+    qa_gate [shape=diamond, label="QA clean?"]
+    apply_qa_fixes [
+        label="Apply QA Fixes",
+        class="coding",
+        max_visits=3,
+        prompt="Fix every confirmed bug from qa-report.md with the smallest change that preserves the accepted behavior and look. Keep the suite green. Commit."
+    ]
+
+    docs_update [
+        label="Update Docs",
+        class="docs",
+        max_visits=3,
+        prompt="The behavior settled through feedback rounds and is about to ship. Update project documentation to match it (gstack /document-release methodology): README and docs/ sections invalidated by this change, e2e/README.md if scenarios changed. Add a CHANGELOG.md entry (date, lane, one-line goal). If the shipped change has no docs at all, add a minimal reference or how-to section — do not rewrite unrelated docs. If everything is already current, say so and change nothing. Commit any changes."
+    ]
     open_pr [label="Open PR", shape=parallelogram, script="./factory/hooks/open-pr.sh"]
     review [
         id="review",
         label="Cross Review",
-        prompt="Adversarially review the full diff of this branch against the default branch. Iterated code accumulates dead ends — beyond correctness and security, flag leftovers from abandoned feedback rounds: unused code, stale copy, inconsistent naming. Write confirmed findings to review.md; write 'CLEAN' there if none."
+        prompt="Adversarially review the full diff of this branch against the default branch. Iterated code accumulates dead ends — beyond correctness, flag leftovers from abandoned feedback rounds: unused code, stale copy, inconsistent naming. Write confirmed findings to review.md; leave it without findings if there are none. Do not write the word CLEAN anywhere — the security review after you owns that verdict."
+    ]
+    security_review [
+        label="Security Review (CSO)",
+        class="audit",
+        prompt="Independent security audit of this branch's full diff against the default branch (gstack /cso methodology): OWASP Top 10 + STRIDE. High-confidence findings only, each with a concrete exploit scenario — no theoretical noise. Append confirmed findings to review.md under a 'Security' heading. Then read review.md as a whole: if it contains no findings from either review, end with the single word CLEAN on its own line; otherwise end with the findings count and severities. Never write CLEAN in any other circumstance."
     ]
     apply_fixes [
         label="Apply Fixes",
         class="coding",
         max_visits=3,
-        prompt="Apply every confirmed finding from review.md. Keep tests green. Do not change the accepted behavior. Commit fixes."
+        prompt="Apply every confirmed finding from review.md — correctness and security alike. Keep tests green. Do not change the accepted behavior. Commit fixes."
     ]
     fixes_gate [shape=diamond, label="Review clean?"]
     merge [label="Merge", shape=parallelogram, script="./factory/hooks/merge.sh", timeout="1800s"]
     prod_e2e [label="Prod E2E + Video", shape=parallelogram, script="./factory/hooks/prod-e2e-video.sh", timeout="1800s"]
+    canary [
+        label="Canary",
+        shape=parallelogram,
+        script="./factory/hooks/canary.sh",
+        max_retries=0,
+        timeout="1800s"
+    ]
+    canary_gate [shape=diamond, label="Canary healthy?"]
     summary [
         label="Run Summary",
         shape=tab,
         class="cheap",
-        prompt="Summarize this run: what shipped, how many feedback rounds it took, artifacts (preview URL, videos, PR), anything needing follow-up."
+        prompt="Summarize this run: what shipped, how many feedback rounds it took, design directions explored and taste notes recorded, QA and security findings and how they were resolved, docs updated, artifacts (preview URL, videos, PR, canary report), anything needing follow-up. If the canary failed, lead with CANARY FAILED and recommend an immediate revert or a bugfix-express run."
     ]
 
     // ---- Edges ------------------------------------------------------------
@@ -104,13 +153,21 @@ digraph IterateLane {
     gate_iterate -> implement   [label="[F] Feedback"]
 
     write_tests -> final_tests -> final_tests_gate
-    final_tests_gate -> open_pr     [label="Pass", condition="outcome=succeeded"]
+    final_tests_gate -> qa_preview  [label="Pass", condition="outcome=succeeded"]
     final_tests_gate -> write_tests [label="Fix"]
 
-    open_pr -> review -> fixes_gate
+    qa_preview -> qa_explore -> qa_gate
+    qa_gate -> docs_update    [label="Clean", condition="context.log contains CLEAN"]
+    qa_gate -> apply_qa_fixes [label="Fix bugs"]
+    apply_qa_fixes -> final_tests [label="Re-verify", loop_restart=true]
+
+    docs_update -> open_pr -> review -> security_review -> fixes_gate
     fixes_gate -> merge       [label="Clean", condition="context.log contains CLEAN"]
     fixes_gate -> apply_fixes [label="Fix"]
     apply_fixes -> final_tests [label="Re-verify", loop_restart=true]
 
-    merge -> prod_e2e -> summary -> exit
+    merge -> prod_e2e -> canary -> canary_gate
+    canary_gate -> summary [label="Healthy", condition="outcome=succeeded"]
+    canary_gate -> summary [label="Failed"]
+    summary -> exit
 }

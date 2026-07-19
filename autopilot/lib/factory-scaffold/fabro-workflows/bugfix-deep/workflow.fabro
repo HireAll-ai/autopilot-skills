@@ -3,8 +3,11 @@
 // Same skeleton as feature-pipeline, with the spec stage replaced by an
 // evidence-driven investigation: investigate -> [Gate 1: approve diagnosis
 // and fix plan] -> fix + regression tests -> preview e2e video of the broken
-// flow -> [Gate 2: accept] -> PR -> review -> merge -> prod e2e -> post-mortem.
+// flow -> [Gate 2: accept] -> docs update -> PR -> review -> merge
+// -> prod e2e -> canary -> post-mortem.
 //
+// Ship path is a shared invariant across lanes — after editing it run:
+// ./factory/workflows/lint-ship-path.sh
 // Validate: `fabro validate factory/workflows/bugfix-deep.dot`
 
 digraph BugfixDeep {
@@ -15,6 +18,7 @@ digraph BugfixDeep {
             *        { model: claude-haiku-4-5; reasoning_effort: low; }
             .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
             .coding  { model: claude-fable-5; reasoning_effort: high; }
+            .docs    { model: claude-fable-5; reasoning_effort: low; }
             #review  { model: claude-fable-5; reasoning_effort: high; }
         "
     ]
@@ -41,7 +45,7 @@ digraph BugfixDeep {
             label="Implement Fix",
             class="coding",
             max_visits=6,
-            prompt="Implement the approved fix option from rootcause.md. First make sure a failing repro test exists and is committed, then fix. If the operator left steering feedback at the acceptance gate, it is in the conversation context — apply it first."
+            prompt="Implement the approved fix option from rootcause.md. First make sure a failing repro test exists and is committed, then fix. Before writing code, read factory/learnings.md and honor its Active rules — regression-relevant conventions live there. If the operator left steering feedback at the acceptance gate, it is in the conversation context — apply it first."
         ]
         regression_tests [
             label="Regression Tests",
@@ -69,6 +73,12 @@ digraph BugfixDeep {
     gate_accept [shape=hexagon, label="Gate 2: Accept Fix"]
 
     // ---- Stage 4: ship -------------------------------------------------------
+    docs_update [
+        label="Update Docs",
+        class="docs",
+        max_visits=3,
+        prompt="The fix is accepted. Most bug fixes need no doc changes — check quickly whether the root cause (per rootcause.md) revealed stale or wrong documentation, and fix only that. Always add a CHANGELOG.md entry (date, lane, one-line bug + fix). If nothing else needs updating, say so and move on. Commit any changes."
+    ]
     open_pr [label="Open PR", shape=parallelogram, script="./factory/hooks/open-pr.sh"]
     review [
         id="review",
@@ -84,11 +94,19 @@ digraph BugfixDeep {
     fixes_gate [shape=diamond, label="Review clean?"]
     merge [label="Merge", shape=parallelogram, script="./factory/hooks/merge.sh", timeout="1800s"]
     prod_e2e [label="Prod E2E + Video", shape=parallelogram, script="./factory/hooks/prod-e2e-video.sh", timeout="1800s"]
+    canary [
+        label="Canary",
+        shape=parallelogram,
+        script="./factory/hooks/canary.sh",
+        max_retries=0,
+        timeout="1800s"
+    ]
+    canary_gate [shape=diamond, label="Canary healthy?"]
     summary [
         label="Post-mortem",
         shape=tab,
         class="cheap",
-        prompt="Write the operator's post-mortem: root cause, the fix, regression coverage added, artifacts (videos, PR), and one 'how do we prevent this class of bug' suggestion."
+        prompt="Write the operator's post-mortem: root cause, the fix, regression coverage added, docs corrected, artifacts (videos, PR, canary report), and one 'how do we prevent this class of bug' suggestion. If the canary failed, lead with CANARY FAILED and recommend an immediate revert or follow-up fix."
     ]
 
     // ---- Edges ------------------------------------------------------------
@@ -101,14 +119,17 @@ digraph BugfixDeep {
     tests_gate -> implement_fix  [label="Fix"]
 
     preview_deploy -> e2e_video -> gate_accept
-    gate_accept -> open_pr       [label="[A] Accept"]
+    gate_accept -> docs_update   [label="[A] Accept"]
     gate_accept -> implement_fix [label="[S] Steer"]
     gate_accept -> investigate   [label="[R] Re-investigate"]
 
-    open_pr -> review -> fixes_gate
+    docs_update -> open_pr -> review -> fixes_gate
     fixes_gate -> merge       [label="Clean", condition="context.log contains CLEAN"]
     fixes_gate -> apply_fixes [label="Fix"]
     apply_fixes -> run_tests  [label="Re-verify", loop_restart=true]
 
-    merge -> prod_e2e -> summary -> exit
+    merge -> prod_e2e -> canary -> canary_gate
+    canary_gate -> summary [label="Healthy", condition="outcome=succeeded"]
+    canary_gate -> summary [label="Failed"]
+    summary -> exit
 }

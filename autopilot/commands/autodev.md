@@ -25,6 +25,16 @@ Input (`$ARGUMENTS`, optional):
   config, the scenario walk is **recorded to video** (Step 4.5). Off by default.
 - `--reconfigure` — re-run the config interview (Step 0.0) even if a config already exists.
 
+## Init check (runs before Step 0.0)
+
+```bash
+test -f .claude/autopilot.init.json || echo "NOT_INITIALIZED"
+```
+- `NOT_INITIALIZED` → **STOP.** This repo has not been initialized for autopilot. Tell the user to
+  run **`/autopilot:init`** first (verifies/installs gstack, ensures the project config, scaffolds
+  the factory when fabro is available, bootstraps `DESIGN.md` and baseline docs), then re-run this
+  command. Do not improvise a partial init here.
+
 ## Step 0.0 — Load project config (ALWAYS FIRST)
 
 ```bash

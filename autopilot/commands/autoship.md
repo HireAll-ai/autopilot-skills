@@ -28,6 +28,14 @@ Arguments (optional, any order):
   **blocks the ticket move**; fixes are follow-up PRs, never local edits. Independent of `--qa`.
 - `--reconfigure` — re-run the config interview (Step 0.0).
 
+## Init check (runs before Step 0.0)
+
+```bash
+test -f .claude/autopilot.init.json || echo "NOT_INITIALIZED"
+```
+- `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack, config,
+  factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
+
 ## Step 0.0 — Load project config (ALWAYS FIRST)
 
 ```bash

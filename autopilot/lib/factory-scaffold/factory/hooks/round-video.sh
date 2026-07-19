@@ -12,7 +12,7 @@ source factory-preview.env
 : "${PREVIEW_URL:?preview-deploy.sh must run first}"
 
 # Namespace artifacts per run; one subdir per feedback round.
-ARTIFACTS_DIR="factory-artifacts${FABRO_RUN_ID:+/$FABRO_RUN_ID}"
+ARTIFACTS_DIR="factory-artifacts/$(run_namespace)"
 ROUND=$(( $(find "$ARTIFACTS_DIR" -maxdepth 1 -type d -name 'round-*' 2>/dev/null | wc -l | tr -d ' ') + 1 ))
 ROUND_DIR="$ARTIFACTS_DIR/round-$ROUND"
 mkdir -p "$ROUND_DIR"
@@ -24,7 +24,7 @@ if ! ls e2e/tour.spec.* e2e/*.spec.* >/dev/null 2>&1; then
   cat > e2e/tour.spec.mjs <<'EOF'
 import { test } from '@playwright/test';
 test('walkthrough tour',
-  { annotation: { type: 'description', description: 'Обзорный проход по приложению в текущем состоянии раунда: открываем главный экран и прокручиваем содержимое. Демонстрация прогресса, не приёмочный тест.' } },
+  { annotation: { type: 'description', description: 'Overview pass through the app as of this round: open the main screen and scroll through the content. A progress demo, not an acceptance test.' } },
   async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(3000);

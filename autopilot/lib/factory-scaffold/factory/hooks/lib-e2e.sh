@@ -3,6 +3,21 @@
 # video:'on' in factory/e2e/playwright.config.mjs — never by agent goodwill.
 # Source this from hooks; do not execute directly.
 
+# Namespace for this run's artifacts. fabro does not export a run-id env var
+# to command stages, so fall back to the branch name — unique per run once
+# managed run branches are enabled ([run.run_branch] in workflow.toml).
+run_namespace() {
+  if [[ -n "${FABRO_RUN_ID:-}" ]]; then
+    echo "$FABRO_RUN_ID"
+    return
+  fi
+  # Note: a pipeline's exit code is the last command's, so `git … || echo` can
+  # never fire on git failure — capture first, then default.
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')"
+  echo "${branch:-unscoped}"
+}
+
 # Install @playwright/test + chromium if the repo lacks them. Commits the
 # dependency so the run branch stays reproducible.
 ensure_playwright() {

@@ -6,6 +6,9 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill
 
 # /factory-init — make this repo factory-enabled
 
+Normally invoked by `/autopilot:init` (Step 3); safe to run standalone — it
+does **not** require the init marker itself.
+
 Copies the factory scaffold into the current repository and personalizes it.
 Source of truth: the plugin's bundled snapshot at
 `${CLAUDE_PLUGIN_ROOT}/lib/factory-scaffold/` — or a live factory repo when
@@ -24,10 +27,12 @@ instead; useful when the canonical factory has evolved past the snapshot).
 ## Step 2 — Copy
 
 From the scaffold source:
-- `factory/` → repo `factory/` (workflows *.dot, hooks/, e2e/, deploy/, README.md)
-- `fabro-workflows/<lane>/` → repo `.fabro/workflows/<lane>/` (all five lanes)
+- `factory/` → repo `factory/` (workflows *.dot + `lint-ship-path.sh`, hooks/
+  incl. `canary.sh`, e2e/, deploy/, README.md)
+- `fabro-workflows/<lane>/` → repo `.fabro/workflows/<lane>/` (all five lanes;
+  `feature-quick` no longer exists — it is `feature-pipeline -I no_spec=true`)
 - `factory/config.env.template` → repo `factory/config.env` (only if absent)
-- `chmod +x factory/hooks/*.sh`
+- `chmod +x factory/hooks/*.sh factory/workflows/lint-ship-path.sh`
 
 ## Step 3 — Personalize `factory/config.env`
 
@@ -43,8 +48,9 @@ question per line):
 ## Step 4 — Validate & commit
 
 1. If fabro is installed: `fabro validate factory/workflows/<lane>.dot` for all
-   five lanes and `fabro preflight <lane>` for one of them; report failures
-   instead of committing broken graphs.
+   five lanes and `fabro preflight <lane>` for one of them; also run
+   `./factory/workflows/lint-ship-path.sh` (ship-path structural invariant).
+   Report failures instead of committing broken graphs.
 2. Commit: `factory: scaffold software factory (lanes, hooks, e2e) via /factory-init`.
 3. Print next steps:
    - server: local `fabro server start` / remote `export FABRO_SERVER=...`
