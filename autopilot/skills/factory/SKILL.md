@@ -25,6 +25,10 @@ building; the operator answers the gates.
 1. Dictated tweak, wrong result costs only a rerun, no data/auth/payments → `express-lane`
 2. "Know it right when I click it" (UX/feel) → `iterate-lane`
 3. New capability, expensive-to-undo decisions, or 30+ min autonomous work → `feature-pipeline`
+   — with the `--no-spec` flag (or wording like «без спеки», "skip the spec")
+   → `feature-quick`: no spec document; the agent asks only the key
+   implementation questions (with recommendations) at a single details gate,
+   then builds autonomously. Same preview/e2e/accept/review/ship path.
 4. Bug, cause obvious + reproducible → `bugfix-express`; cause unclear / wide blast radius → `bugfix-deep`
 
 Tell the user which lane you picked and why (one sentence). If genuinely

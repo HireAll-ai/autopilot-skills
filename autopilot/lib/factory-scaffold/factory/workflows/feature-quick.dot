@@ -1,0 +1,136 @@
+// Software Factory — feature-quick: the no-spec feature lane.
+// Flow: clarify (implementation questions only) -> [Gate: details]
+//       -> implement+tests (fix loop) -> preview deploy + e2e video
+//       -> [Gate: accept / steer / rework] -> PR -> cross-review -> fixes
+//       -> merge -> prod e2e video
+//
+// Same ship path as feature-pipeline, but no spec.md and no design.html:
+// the contract is the goal plus the operator's answers at the details gate.
+// Validate: `fabro validate factory/workflows/feature-quick.dot`
+
+digraph FeatureQuick {
+    graph [
+        goal="Deliver the requested feature end-to-end with a single implementation-details gate",
+        default_max_retries=1,
+        model_stylesheet="
+            *        { model: claude-haiku-4-5; reasoning_effort: low; }
+            .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
+            .coding  { model: claude-fable-5; reasoning_effort: high; }
+            #review  { model: claude-fable-5; reasoning_effort: high; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // ---- Stage 1: implementation questions only ---------------------------
+    clarify [
+        label="Clarify Details",
+        class="coding",
+        reasoning_effort="high",
+        prompt="Study the codebase and the goal: {{ goal }}. Do NOT write a spec — this is the no-spec lane. Identify only the implementation decisions you cannot responsibly make alone: API/data-model shape, UX placement, naming, integration and dependency choices, tradeoffs with lasting consequences. Keep it to the 2-6 that matter. IMPORTANT: your final message is what the operator sees at the gate — for each decision give one compact block: the question, your recommendation, and its consequence in one line; end with a 3-5 line plan sketch. If this is a refine loop, the operator's feedback is in the conversation context — address every point."
+    ]
+
+    gate_details [shape=hexagon, label="Gate: Implementation Details"]
+
+    // ---- Stage 2: autonomous implementation ------------------------------
+    subgraph cluster_impl {
+        label = "Implementation"
+        node [thread_id="impl", fidelity="full"]
+        implement [
+            label="Implement",
+            class="coding",
+            max_visits=6,
+            prompt="Implement the goal. There is no spec.md — the contract is the goal plus the decisions agreed at the details gate (in the conversation context); if the operator chose corrections, apply them over your recommendations. Follow existing repo conventions. Commit in small increments. If steering feedback arrived from an acceptance gate, apply it first."
+        ]
+        write_tests [
+            label="Write Tests",
+            class="coding",
+            prompt="Write tests covering the goal's acceptance criteria and the decisions agreed at the details gate, plus edge cases. Match the repo's existing test style. Also author/update Playwright acceptance scenarios in e2e/*.spec.* — one test per criterion, baseURL-relative navigation (page.goto('/')); every test carries a description annotation (2-3 sentences: what the user does, what is verified — shown next to that test's video), and e2e/README.md holds the narrative: feature logic, scenario map, what's out of scope. Do not configure video or browsers, the factory config forces recording."
+        ]
+    }
+
+    run_tests [
+        label="Run Tests",
+        shape=parallelogram,
+        script="./factory/hooks/run-tests.sh",
+        max_retries=0
+    ]
+    tests_gate [shape=diamond, label="Tests green?"]
+
+    // ---- Stage 3: acceptance artifacts ------------------------------------
+    preview_deploy [
+        label="Preview Deploy",
+        shape=parallelogram,
+        script="./factory/hooks/preview-deploy.sh",
+        timeout="900s"
+    ]
+    e2e_video [
+        label="E2E + Video",
+        shape=parallelogram,
+        script="./factory/hooks/e2e-video.sh",
+        timeout="1800s"
+    ]
+
+    gate_accept [shape=hexagon, label="Gate: Accept Feature"]
+
+    // ---- Stage 4: ship ----------------------------------------------------
+    open_pr [
+        label="Open PR",
+        shape=parallelogram,
+        script="./factory/hooks/open-pr.sh"
+    ]
+    review [
+        id="review",
+        label="Cross Review",
+        prompt="Adversarially review the full diff of this branch against the default branch. Hunt for correctness bugs, security issues, and deviations from the goal and the decisions agreed at the details gate. Write confirmed findings to review.md; write 'CLEAN' there if none."
+    ]
+    apply_fixes [
+        label="Apply Fixes",
+        class="coding",
+        max_visits=3,
+        prompt="Apply every confirmed finding from review.md. Keep tests green. Commit fixes."
+    ]
+    fixes_gate [shape=diamond, label="Review clean?"]
+    merge [
+        label="Merge",
+        shape=parallelogram,
+        script="./factory/hooks/merge.sh",
+        timeout="1800s"
+    ]
+    prod_e2e [
+        label="Prod E2E + Video",
+        shape=parallelogram,
+        script="./factory/hooks/prod-e2e-video.sh",
+        timeout="1800s"
+    ]
+    summary [
+        label="Run Summary",
+        shape=tab,
+        class="cheap",
+        prompt="Summarize this run for the operator: what shipped, the decisions taken at the details gate, artifacts (preview URL, videos), and anything needing follow-up."
+    ]
+
+    // ---- Edges ------------------------------------------------------------
+    start -> clarify -> gate_details
+    gate_details -> implement [label="[G] Go with recommendations"]
+    gate_details -> implement [label="[C] Go with my corrections"]
+    gate_details -> clarify   [label="[R] Refine questions"]
+
+    implement -> write_tests -> run_tests -> tests_gate
+    tests_gate -> preview_deploy [label="Pass", condition="outcome=succeeded"]
+    tests_gate -> implement      [label="Fix"]
+
+    preview_deploy -> e2e_video -> gate_accept
+    gate_accept -> open_pr   [label="[A] Accept"]
+    gate_accept -> implement [label="[S] Steer"]
+    gate_accept -> clarify   [label="[R] Rework Details"]
+
+    open_pr -> review -> fixes_gate
+    fixes_gate -> merge       [label="Clean", condition="context.log contains CLEAN"]
+    fixes_gate -> apply_fixes [label="Fix"]
+    apply_fixes -> run_tests  [label="Re-verify", loop_restart=true]
+
+    merge -> prod_e2e -> summary -> exit
+}

@@ -15,6 +15,7 @@ they consume:
 | `express-lane` | dictated tweak: move/hide a button, copy change | the goal sentence itself | **0** | — | — (tests only) |
 | `iterate-lane` | "know it when I see it": UX, layout, product feel | the feedback loop | N × Feedback / Done | every round + walkthrough video | full, after Done |
 | `feature-pipeline` | big feature, long autonomous block (30 min+) | `spec.md` + `design.html` | 2 (spec, accept) | once, with e2e video | full |
+| `feature-quick` | same scale, but no spec document — operator only answers implementation questions | the goal + answered questions | 2 (details, accept) | once, with e2e video | full |
 | `bugfix-express` | bug with obvious cause + repro | the failing repro test | **0** | — | — (tests only) |
 | `bugfix-deep` | unclear cause, wide blast radius, incidents | `rootcause.md` (evidence chain) | 2 (diagnosis, accept) | once, e2e of broken flow | full, regression-focused |
 
@@ -25,6 +26,8 @@ they consume:
 2. You'll only know it's right when you click it? → `iterate-lane`.
 3. New capability with decisions that are expensive to undo (data model,
    APIs, integrations), or hours of autonomous work? → `feature-pipeline`.
+   Same, but you don't want a spec document — just answer a short list of
+   implementation questions (`--no-spec`)? → `feature-quick`.
 4. Bug: cause obvious and reproducible? → `bugfix-express`.
    Cause unclear, or the fix could regress neighbors? → `bugfix-deep`.
 
@@ -102,6 +105,7 @@ fabro validate factory/workflows/<lane>.dot   # lint a graph
 fabro run express-lane     --goal "move the Save button to the left of Cancel"
 fabro run iterate-lane     --goal "rough cut of the runs filter panel"
 fabro run feature-pipeline --goal "…feature description…"
+fabro run feature-quick    --goal "…feature description…"   # no spec, questions only
 fabro run bugfix-express   --goal "artifacts 404 when run id contains a dot"
 fabro run bugfix-deep      --goal "runs intermittently stuck in Verify"
 fabro attach <run-id>                         # watch / answer gates
