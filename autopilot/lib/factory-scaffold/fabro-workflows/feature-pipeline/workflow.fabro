@@ -1,0 +1,133 @@
+// Software Factory — feature pipeline v1
+// Flow: spec -> [Gate 1: approve spec] -> implement+tests (fix loop)
+//       -> preview deploy + e2e video -> [Gate 2: accept / steer / reject]
+//       -> PR -> cross-review -> fixes -> merge -> prod e2e video
+//
+// Per-product commands live in factory/hooks/*.sh so this graph stays
+// product-agnostic. Validate: `fabro validate factory/workflows/feature-pipeline.dot`
+
+digraph FeaturePipeline {
+    graph [
+        goal="Deliver the requested feature end-to-end with two human gates",
+        default_max_retries=1,
+        model_stylesheet="
+            *        { model: claude-haiku-4-5; reasoning_effort: low; }
+            .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
+            .coding  { model: claude-fable-5; reasoning_effort: high; }
+            #review  { model: claude-fable-5; reasoning_effort: high; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // ---- Stage 1: spec ----------------------------------------------------
+    spec [
+        label="Write Spec",
+        class="coding",
+        reasoning_effort="high",
+        prompt="Study the codebase and the goal: {{ goal }}. Write spec.md with: (1) what we build, (2) how it looks (UX, states, copy), (3) how it works (data flow, APIs, edge cases), (4) implementation plan, (5) a 'Key decisions' section listing every choice you cannot make alone (tradeoffs, UX alternatives, naming, pricing-like decisions) with your recommendation for each. For features with a UI, also produce design.html — a self-contained static mockup of the key screens and states (inline CSS, no build step) — and reference it from spec.md so the operator can open it in a browser before approving. If this is a revision loop, the operator's feedback from the approval gate is in the conversation context — address every point of it. IMPORTANT: your final message is what the operator sees at the approval gate — end with an operator digest: a 5-10 bullet summary of the spec, the complete 'Key decisions' list with your recommendations, and the paths spec.md / design.html."
+    ]
+
+    gate_spec [shape=hexagon, label="Gate 1: Approve Spec"]
+
+    // ---- Stage 2: autonomous implementation ------------------------------
+    subgraph cluster_impl {
+        label = "Implementation"
+        node [thread_id="impl", fidelity="full"]
+        implement [
+            label="Implement",
+            class="coding",
+            max_visits=6,
+            prompt="Implement spec.md exactly. Follow existing repo conventions. Commit in small increments. If the operator left steering feedback at an acceptance gate, it is in the conversation context — apply it first."
+        ]
+        write_tests [
+            label="Write Tests",
+            class="coding",
+            prompt="Write tests covering the spec's acceptance criteria and edge cases. Match the repo's existing test style. Also author/update Playwright acceptance scenarios in e2e/*.spec.* — one test per acceptance criterion, baseURL-relative navigation (page.goto('/')); every test carries a description annotation (2-3 sentences: what the user does, what is verified — shown next to that test's video), and e2e/README.md holds the narrative: feature logic, scenario map, what's out of scope. Do not configure video or browsers, the factory config forces recording."
+        ]
+    }
+
+    run_tests [
+        label="Run Tests",
+        shape=parallelogram,
+        script="./factory/hooks/run-tests.sh",
+        max_retries=0
+    ]
+    tests_gate [shape=diamond, label="Tests green?"]
+
+    // ---- Stage 3: acceptance artifacts ------------------------------------
+    preview_deploy [
+        label="Preview Deploy",
+        shape=parallelogram,
+        script="./factory/hooks/preview-deploy.sh",
+        timeout="900s"
+    ]
+    e2e_video [
+        label="E2E + Video",
+        shape=parallelogram,
+        script="./factory/hooks/e2e-video.sh",
+        timeout="1800s"
+    ]
+
+    gate_accept [shape=hexagon, label="Gate 2: Accept Feature"]
+
+    // ---- Stage 4: ship ----------------------------------------------------
+    open_pr [
+        label="Open PR",
+        shape=parallelogram,
+        script="./factory/hooks/open-pr.sh"
+    ]
+    review [
+        id="review",
+        label="Cross Review",
+        prompt="Adversarially review the full diff of this branch against the default branch. Hunt for correctness bugs, security issues, and spec deviations. Write confirmed findings to review.md; write 'CLEAN' there if none."
+    ]
+    apply_fixes [
+        label="Apply Fixes",
+        class="coding",
+        max_visits=3,
+        prompt="Apply every confirmed finding from review.md. Keep tests green. Commit fixes."
+    ]
+    fixes_gate [shape=diamond, label="Review clean?"]
+    merge [
+        label="Merge",
+        shape=parallelogram,
+        script="./factory/hooks/merge.sh",
+        timeout="1800s"
+    ]
+    prod_e2e [
+        label="Prod E2E + Video",
+        shape=parallelogram,
+        script="./factory/hooks/prod-e2e-video.sh",
+        timeout="1800s"
+    ]
+    summary [
+        label="Run Summary",
+        shape=tab,
+        class="cheap",
+        prompt="Summarize this run for the operator: what shipped, key decisions taken, artifacts (preview URL, videos), and anything needing follow-up."
+    ]
+
+    // ---- Edges ------------------------------------------------------------
+    start -> spec -> gate_spec
+    gate_spec -> implement [label="[A] Approve"]
+    gate_spec -> spec      [label="[R] Revise"]
+
+    implement -> write_tests -> run_tests -> tests_gate
+    tests_gate -> preview_deploy [label="Pass", condition="outcome=succeeded"]
+    tests_gate -> implement      [label="Fix"]
+
+    preview_deploy -> e2e_video -> gate_accept
+    gate_accept -> open_pr   [label="[A] Accept"]
+    gate_accept -> implement [label="[S] Steer"]
+    gate_accept -> spec      [label="[R] Rework Spec"]
+
+    open_pr -> review -> fixes_gate
+    fixes_gate -> merge       [label="Clean", condition="context.log contains CLEAN"]
+    fixes_gate -> apply_fixes [label="Fix"]
+    apply_fixes -> run_tests  [label="Re-verify", loop_restart=true]
+
+    merge -> prod_e2e -> summary -> exit
+}

@@ -12,9 +12,8 @@ building; the operator answers the gates.
 ## 0. Preflight (this repo, this machine)
 
 1. Factory scaffold present? `.fabro/workflows/` and `factory/` must exist in
-   the repo root. If absent — this repo is not factory-enabled: tell the user
-   and offer to copy the scaffold (`factory/` + `.fabro/` + `.claude/skills/factory/`)
-   from their factory home repo (product-planner).
+   the repo root. If absent — this repo is not factory-enabled: offer to run
+   `/factory-init` (scaffolds lanes, hooks, and e2e machinery from the plugin).
 2. fabro reachable? `fabro server status || fabro doctor`. Remote server:
    respect `$FABRO_SERVER` (e.g. `https://fabro.<domain>` once the factory runs
    on Hetzner). Install if missing: `brew install fabro-sh/tap/fabro-nightly`.

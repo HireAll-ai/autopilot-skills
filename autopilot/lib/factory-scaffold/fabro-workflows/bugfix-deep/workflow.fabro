@@ -1,0 +1,114 @@
+// Software Factory — bugfix deep
+// For bugs with an unclear root cause, wide blast radius, or prod incidents.
+// Same skeleton as feature-pipeline, with the spec stage replaced by an
+// evidence-driven investigation: investigate -> [Gate 1: approve diagnosis
+// and fix plan] -> fix + regression tests -> preview e2e video of the broken
+// flow -> [Gate 2: accept] -> PR -> review -> merge -> prod e2e -> post-mortem.
+//
+// Validate: `fabro validate factory/workflows/bugfix-deep.dot`
+
+digraph BugfixDeep {
+    graph [
+        goal="Root-cause the bug with evidence, get the fix plan approved, fix with regression coverage, ship with a post-mortem",
+        default_max_retries=1,
+        model_stylesheet="
+            *        { model: claude-haiku-4-5; reasoning_effort: low; }
+            .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
+            .coding  { model: claude-fable-5; reasoning_effort: high; }
+            #review  { model: claude-fable-5; reasoning_effort: high; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // ---- Stage 1: investigation -------------------------------------------
+    investigate [
+        label="Investigate",
+        class="coding",
+        reasoning_effort="high",
+        max_visits=4,
+        prompt="Bug report: {{ goal }}. Find the root cause with evidence, not plausibility: reproduce the bug (automated test if possible, otherwise exact manual steps), trace the failing path through the code, and rule out at least one competing explanation. Write rootcause.md with: (1) symptom, (2) reproduction, (3) the evidence chain to the root cause, (4) blast radius — what else this code affects, (5) fix options with tradeoffs (quick patch vs proper fix) and your recommendation. If this is a revision loop, the operator's gate feedback is in the conversation context — address it. IMPORTANT: your final message is what the operator sees at the gate — end with a digest of the diagnosis, the fix options, and your recommendation."
+    ]
+    gate_plan [shape=hexagon, label="Gate 1: Approve Diagnosis + Plan"]
+
+    // ---- Stage 2: fix with regression coverage -----------------------------
+    subgraph cluster_fix {
+        label = "Fix"
+        node [thread_id="fix", fidelity="full"]
+        implement_fix [
+            label="Implement Fix",
+            class="coding",
+            max_visits=6,
+            prompt="Implement the approved fix option from rootcause.md. First make sure a failing repro test exists and is committed, then fix. If the operator left steering feedback at the acceptance gate, it is in the conversation context — apply it first."
+        ]
+        regression_tests [
+            label="Regression Tests",
+            class="coding",
+            prompt="Beyond the repro test: add regression tests across the blast radius listed in rootcause.md — the neighboring behaviors the fix could plausibly have broken."
+        ]
+    }
+
+    run_tests [label="Run Tests", shape=parallelogram, script="./factory/hooks/run-tests.sh", max_retries=0]
+    tests_gate [shape=diamond, label="Tests green?"]
+
+    // ---- Stage 3: acceptance artifacts --------------------------------------
+    preview_deploy [
+        label="Preview Deploy",
+        shape=parallelogram,
+        script="./factory/hooks/preview-deploy.sh",
+        timeout="900s"
+    ]
+    e2e_video [
+        label="E2E + Video",
+        shape=parallelogram,
+        script="./factory/hooks/e2e-video.sh",
+        timeout="1800s"
+    ]
+    gate_accept [shape=hexagon, label="Gate 2: Accept Fix"]
+
+    // ---- Stage 4: ship -------------------------------------------------------
+    open_pr [label="Open PR", shape=parallelogram, script="./factory/hooks/open-pr.sh"]
+    review [
+        id="review",
+        label="Cross Review",
+        prompt="Adversarially review the full diff of this branch against the default branch. This is a bug fix: hunt hardest for regressions the fix may introduce, and for symptom-patching that leaves the root cause (per rootcause.md) alive. Write confirmed findings to review.md; write 'CLEAN' there if none."
+    ]
+    apply_fixes [
+        label="Apply Fixes",
+        class="coding",
+        max_visits=3,
+        prompt="Apply every confirmed finding from review.md. Keep tests green. Commit fixes."
+    ]
+    fixes_gate [shape=diamond, label="Review clean?"]
+    merge [label="Merge", shape=parallelogram, script="./factory/hooks/merge.sh", timeout="1800s"]
+    prod_e2e [label="Prod E2E + Video", shape=parallelogram, script="./factory/hooks/prod-e2e-video.sh", timeout="1800s"]
+    summary [
+        label="Post-mortem",
+        shape=tab,
+        class="cheap",
+        prompt="Write the operator's post-mortem: root cause, the fix, regression coverage added, artifacts (videos, PR), and one 'how do we prevent this class of bug' suggestion."
+    ]
+
+    // ---- Edges ------------------------------------------------------------
+    start -> investigate -> gate_plan
+    gate_plan -> implement_fix [label="[A] Approve"]
+    gate_plan -> investigate   [label="[R] Dig Deeper"]
+
+    implement_fix -> regression_tests -> run_tests -> tests_gate
+    tests_gate -> preview_deploy [label="Pass", condition="outcome=succeeded"]
+    tests_gate -> implement_fix  [label="Fix"]
+
+    preview_deploy -> e2e_video -> gate_accept
+    gate_accept -> open_pr       [label="[A] Accept"]
+    gate_accept -> implement_fix [label="[S] Steer"]
+    gate_accept -> investigate   [label="[R] Re-investigate"]
+
+    open_pr -> review -> fixes_gate
+    fixes_gate -> merge       [label="Clean", condition="context.log contains CLEAN"]
+    fixes_gate -> apply_fixes [label="Fix"]
+    apply_fixes -> run_tests  [label="Re-verify", loop_restart=true]
+
+    merge -> prod_e2e -> summary -> exit
+}

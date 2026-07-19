@@ -1,0 +1,116 @@
+// Software Factory — iterate lane
+// For "I'll know it when I see it" work: no detailed spec upfront.
+// The loop IS the spec: build increment -> preview -> walkthrough video ->
+// operator feedback ... repeated until the operator answers Done, then the
+// ship path runs once (tests written against the settled behavior, review,
+// merge). The last round's video doubles as the acceptance artifact; prod
+// e2e video still runs after merge.
+//
+// Validate: `fabro validate factory/workflows/iterate-lane.dot`
+
+digraph IterateLane {
+    graph [
+        goal="Co-build the change through short preview-feedback rounds, ship on the operator's Done",
+        default_max_retries=1,
+        model_stylesheet="
+            *        { model: claude-haiku-4-5; reasoning_effort: low; }
+            .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
+            .coding  { model: claude-fable-5; reasoning_effort: high; }
+            #review  { model: claude-fable-5; reasoning_effort: high; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // ---- Feedback loop: one thread so context accumulates across rounds ----
+    subgraph cluster_loop {
+        label = "Feedback loop"
+        node [thread_id="build", fidelity="full"]
+        implement [
+            label="Build Increment",
+            class="coding",
+            max_visits=20,
+            prompt="Goal: {{ goal }}. There is no detailed spec — build the smallest coherent version the operator can react to in a browser. On later visits the operator's feedback from the iterate gate is in the conversation context: apply ALL of it and nothing else; do not expand scope on your own. Keep the existing test suite green. Commit each round. End every visit with a short digest: what changed this round, what to look at first on the preview, open questions."
+        ]
+        write_tests [
+            label="Write Tests",
+            class="coding",
+            prompt="The behavior is now accepted as-is on the preview. Write tests that pin it down: the flows the operator iterated on, plus edge cases. Match the repo's existing test style."
+        ]
+    }
+
+    run_tests [
+        label="Regression Tests",
+        shape=parallelogram,
+        script="./factory/hooks/run-tests.sh",
+        max_retries=0
+    ]
+    tests_gate [shape=diamond, label="Suite green?"]
+
+    preview_deploy [
+        label="Preview Deploy",
+        shape=parallelogram,
+        script="./factory/hooks/preview-deploy.sh",
+        timeout="900s"
+    ]
+    round_video [
+        label="Round Video",
+        shape=parallelogram,
+        script="./factory/hooks/round-video.sh",
+        timeout="1800s"
+    ]
+
+    gate_iterate [shape=hexagon, label="Iterate: Done / Feedback"]
+
+    // ---- Ship path, runs once after Done -----------------------------------
+    final_tests [
+        label="Run Tests",
+        shape=parallelogram,
+        script="./factory/hooks/run-tests.sh",
+        max_retries=0
+    ]
+    final_tests_gate [shape=diamond, label="Tests green?"]
+    open_pr [label="Open PR", shape=parallelogram, script="./factory/hooks/open-pr.sh"]
+    review [
+        id="review",
+        label="Cross Review",
+        prompt="Adversarially review the full diff of this branch against the default branch. Iterated code accumulates dead ends — beyond correctness and security, flag leftovers from abandoned feedback rounds: unused code, stale copy, inconsistent naming. Write confirmed findings to review.md; write 'CLEAN' there if none."
+    ]
+    apply_fixes [
+        label="Apply Fixes",
+        class="coding",
+        max_visits=3,
+        prompt="Apply every confirmed finding from review.md. Keep tests green. Do not change the accepted behavior. Commit fixes."
+    ]
+    fixes_gate [shape=diamond, label="Review clean?"]
+    merge [label="Merge", shape=parallelogram, script="./factory/hooks/merge.sh", timeout="1800s"]
+    prod_e2e [label="Prod E2E + Video", shape=parallelogram, script="./factory/hooks/prod-e2e-video.sh", timeout="1800s"]
+    summary [
+        label="Run Summary",
+        shape=tab,
+        class="cheap",
+        prompt="Summarize this run: what shipped, how many feedback rounds it took, artifacts (preview URL, videos, PR), anything needing follow-up."
+    ]
+
+    // ---- Edges ------------------------------------------------------------
+    start -> implement -> run_tests -> tests_gate
+    tests_gate -> preview_deploy [label="Pass", condition="outcome=succeeded"]
+    tests_gate -> implement      [label="Fix"]
+
+    preview_deploy -> round_video -> gate_iterate
+    gate_iterate -> write_tests [label="[D] Done"]
+    gate_iterate -> implement   [label="[F] Feedback"]
+
+    write_tests -> final_tests -> final_tests_gate
+    final_tests_gate -> open_pr     [label="Pass", condition="outcome=succeeded"]
+    final_tests_gate -> write_tests [label="Fix"]
+
+    open_pr -> review -> fixes_gate
+    fixes_gate -> merge       [label="Clean", condition="context.log contains CLEAN"]
+    fixes_gate -> apply_fixes [label="Fix"]
+    apply_fixes -> final_tests [label="Re-verify", loop_restart=true]
+
+    merge -> prod_e2e -> summary -> exit
+}

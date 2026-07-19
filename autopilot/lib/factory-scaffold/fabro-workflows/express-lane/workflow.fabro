@@ -1,0 +1,67 @@
+// Software Factory — express lane
+// For dictated tweaks: move a button, change copy, hide an element.
+// Zero human gates: the test suite is the only guard; the failure mode is
+// fix-forward (a follow-up express/bugfix run), not a blocked pipeline.
+// Escape hatch: the agent refuses to merge anything bigger than a tweak and
+// escalates to a heavier lane instead.
+//
+// Validate: `fabro validate factory/workflows/express-lane.dot`
+
+digraph ExpressLane {
+    graph [
+        goal="Ship the described tweak immediately: no spec, no human gates, tests only",
+        default_max_retries=1,
+        model_stylesheet="
+            *        { model: claude-haiku-4-5; reasoning_effort: low; }
+            .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
+            .coding  { model: claude-fable-5; reasoning_effort: medium; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    implement [
+        label="Implement Tweak",
+        class="coding",
+        max_visits=4,
+        prompt="Apply this change exactly as described: {{ goal }}. Smallest possible diff, follow repo conventions, commit once. This lane merges with NO human review, so be conservative: no refactoring, no drive-by fixes, no dependency changes. ESCAPE HATCH: if the change touches data models, auth, payments, destructive migrations, or needs more than roughly 150 changed lines, do NOT implement it — write the word ESCALATE plus one paragraph of reasoning to escalate.md, say ESCALATE in your final message, and stop."
+    ]
+    scope_gate [shape=diamond, label="In scope?"]
+
+    run_tests [
+        label="Run Tests",
+        shape=parallelogram,
+        script="./factory/hooks/run-tests.sh",
+        max_retries=0
+    ]
+    tests_gate [shape=diamond, label="Tests green?"]
+
+    open_pr [label="Open PR", shape=parallelogram, script="./factory/hooks/open-pr.sh"]
+    merge   [label="Merge", shape=parallelogram, script="./factory/hooks/merge.sh", timeout="1800s"]
+    prod_smoke [
+        label="Prod Smoke + Video",
+        shape=parallelogram,
+        script="./factory/hooks/prod-e2e-video.sh",
+        timeout="1800s"
+    ]
+
+    summary [
+        label="Run Summary",
+        shape=tab,
+        class="cheap",
+        prompt="Summarize for the operator: what changed, PR link, prod smoke result and video path. If the run escalated instead of merging, lead with ESCALATED, quote escalate.md, and recommend which lane to rerun in (iterate-lane or feature-pipeline). If prod smoke failed, lead with SMOKE FAILED and recommend an immediate bugfix-express run or a revert."
+    ]
+
+    // ---- Edges ------------------------------------------------------------
+    start -> implement -> scope_gate
+    scope_gate -> summary   [label="Escalate", condition="context.log contains ESCALATE"]
+    scope_gate -> run_tests [label="Proceed"]
+
+    run_tests -> tests_gate
+    tests_gate -> open_pr   [label="Pass", condition="outcome=succeeded"]
+    tests_gate -> implement [label="Fix"]
+
+    open_pr -> merge -> prod_smoke -> summary -> exit
+}

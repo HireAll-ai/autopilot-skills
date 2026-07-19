@@ -1,0 +1,71 @@
+// Software Factory — bugfix express
+// For bugs with an obvious cause and a reproducible symptom.
+// Discipline: the failing test IS the spec — reproduce FIRST, then fix.
+// Zero human gates; escalates itself to bugfix-deep when the cause turns out
+// to be non-obvious.
+//
+// Validate: `fabro validate factory/workflows/bugfix-express.dot`
+
+digraph BugfixExpress {
+    graph [
+        goal="Reproduce the bug with a failing test, fix it minimally, ship",
+        default_max_retries=1,
+        model_stylesheet="
+            *        { model: claude-haiku-4-5; reasoning_effort: low; }
+            .cheap   { model: claude-haiku-4-5; reasoning_effort: low; }
+            .coding  { model: claude-fable-5; reasoning_effort: high; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // Repro and fix share one thread: the fix agent keeps the repro context.
+    subgraph cluster_fix {
+        label = "Repro + Fix"
+        node [thread_id="fix", fidelity="full"]
+        reproduce [
+            label="Reproduce",
+            class="coding",
+            prompt="Bug report: {{ goal }}. Write a failing automated test that reproduces the bug, commit it, and confirm the current code fails it. Do NOT fix anything yet. ESCAPE HATCH: if after a serious attempt you cannot reproduce, or the root cause turns out to be non-obvious (spans several modules, data corruption, concurrency), write your findings to triage.md, say ESCALATE in your final message, and stop — this bug belongs in bugfix-deep."
+        ]
+        fix [
+            label="Fix",
+            class="coding",
+            max_visits=4,
+            prompt="Fix the bug with the smallest change that makes the repro test pass without breaking the rest of the suite. No refactoring, no drive-by fixes — this lane merges with no human review. Commit."
+        ]
+    }
+    repro_gate [shape=diamond, label="Reproduced?"]
+
+    run_tests [label="Run Tests", shape=parallelogram, script="./factory/hooks/run-tests.sh", max_retries=0]
+    tests_gate [shape=diamond, label="Tests green?"]
+
+    open_pr [label="Open PR", shape=parallelogram, script="./factory/hooks/open-pr.sh"]
+    merge   [label="Merge", shape=parallelogram, script="./factory/hooks/merge.sh", timeout="1800s"]
+    prod_smoke [
+        label="Prod Smoke + Video",
+        shape=parallelogram,
+        script="./factory/hooks/prod-e2e-video.sh",
+        timeout="1800s"
+    ]
+
+    summary [
+        label="Run Summary",
+        shape=tab,
+        class="cheap",
+        prompt="Summarize: the bug, root cause in one line, the fix, the repro test path, prod smoke result. If the run escalated, lead with ESCALATED, quote triage.md, and recommend a bugfix-deep run."
+    ]
+
+    // ---- Edges ------------------------------------------------------------
+    start -> reproduce -> repro_gate
+    repro_gate -> summary [label="Escalate", condition="context.log contains ESCALATE"]
+    repro_gate -> fix     [label="Reproduced"]
+
+    fix -> run_tests -> tests_gate
+    tests_gate -> open_pr [label="Pass", condition="outcome=succeeded"]
+    tests_gate -> fix     [label="Fix more"]
+
+    open_pr -> merge -> prod_smoke -> summary -> exit
+}

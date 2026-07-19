@@ -1,0 +1,30 @@
+# Fabro server on Coolify (Hetzner).
+# Paste as a "Docker Compose" resource in Coolify; set env vars in the
+# Coolify UI (marked as secrets where noted).
+services:
+  fabro:
+    image: ghcr.io/fabro-sh/fabro:nightly # pin to a specific tag after first boot
+    restart: unless-stopped
+    ports:
+      - "32276:32276" # Coolify proxy routes the domain here; remove public port if domain-only
+    volumes:
+      - fabro-storage:/storage
+      # Docker sandbox provider — run agents in isolated containers on this host:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - FABRO_TELEMETRY=off
+      - FABRO_NO_UPGRADE_CHECK=1
+      # LLM via the eventyr proxy (secret):
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_BASE_URL=https://claude.eventyr.cloud/v1
+      # GitHub access for clones/PRs (secret; fine-grained PAT):
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:32276/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  fabro-storage:
