@@ -1,6 +1,6 @@
 {
   "name": "autopilot",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Project-independent autonomous-dev commands (/autodev, /autoship, /autopilot). Requires a one-time /init per repo (verifies/installs gstack, bootstraps DESIGN.md + baseline docs, writes .claude/autopilot.init.json). Project facts live in a committed .claude/autopilot.config.json (autodetected on first run); browser e2e can be recorded to video. Includes /factory (dispatch tasks to a fabro-based software factory: lanes with QA/CSO/docs/canary stages, gates, monitoring) and /factory-init (scaffold the factory into any repo).",
   "author": {
     "name": "HireAll-ai"

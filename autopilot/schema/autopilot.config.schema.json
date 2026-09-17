@@ -207,6 +207,21 @@
         "browseSkill": { "type": "string", "description": "Browser-driving skill (e.g. '/browse')." },
         "qaSkill": { "type": "string", "description": "Heuristic bug-hunting QA skill (e.g. '/qa')." },
         "qaOnlySkill": { "type": "string", "description": "Report-only QA skill for post-merge staging (e.g. '/qa-only')." },
+        "preview": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Local preview handed to the human at the /autodev verification gate (Step 4.8): a link they can click, landed past the login wall.",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Base URL of the local dev server when it cannot be read from the server's own output (e.g. a sandbox-assigned port). May name an env var (e.g. 'http://localhost:$CONDUCTOR_PORT'), resolved at run time. Omit to always take the URL the dev server prints."
+            },
+            "authPath": {
+              "type": "string",
+              "description": "Dev-only route that mints a real local session (e.g. '/dev-login'), so the preview link doesn't land on a login wall the agent has no password for. Omit when the app needs no auth."
+            }
+          }
+        },
         "video": {
           "type": "object",
           "additionalProperties": false,

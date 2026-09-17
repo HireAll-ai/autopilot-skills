@@ -1,5 +1,5 @@
 ---
-description: Autonomous feature build — plan → implement → test → quality-review (+ opt-in --e2e browser e2e, optionally recorded to video), ending in a fully implemented & tested feature on the branch plus a DRAFT PR (CI pre-warmed; the configured auto-reviewer runs once /autoship flips it to ready), then STOPS for your verification. Does not ship — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
+description: Autonomous feature build — plan → implement → test → quality-review (+ opt-in --e2e browser e2e, optionally recorded to video), ending in a fully implemented & tested feature on the branch plus a DRAFT PR (CI pre-warmed; the configured auto-reviewer runs once /autoship flips it to ready), a live preview link and a written test plan, then STOPS for your verification. Does not ship — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--e2e] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent
 ---
@@ -153,7 +153,8 @@ Pure data-model / config / tooling work (no runtime logic) → tests can be skip
 
 Run the local review loop on the diff before handing to the human:
 - **For UI features, start the dev server FIRST, in the background** (`<dev>` = `.commands.dev`, or
-  docker compose as the feature needs) — it warms up while the reviews below run.
+  docker compose as the feature needs) — it warms up while the reviews below run, and it stays
+  up through Step 4.8 so the preview link you hand over actually answers.
 - Invoke the reviewers in **`.review.localReviewers`** (e.g. `/review` + `/codex`) **concurrently** —
   independent reads of the same diff. Fix high-confidence findings from both.
 - **For UI features, browser QA is mandatory:** run **`.qa.qaSkill`** (`/qa`) against the (already
@@ -205,6 +206,64 @@ the heuristic bug-hunt of Step 4). Skipped entirely unless `--e2e` is in `$ARGUM
      (`https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>`); link the mp4/webm artifact
      path for full quality.
 
+## Step 4.8 — Live preview link + test plan (always)
+
+The verification gate is only as good as what you hand over. Before Step 5, produce the two things
+the human actually needs: **a URL they can click** and **a short test plan they can execute**.
+
+### 1. Keep the app up, and get a URL that really answers
+
+- The dev server from Step 4 should still be running. If it isn't (or Step 4 was skipped because the
+  feature isn't UI-facing but still has a runnable surface), start `<dev>` = `.commands.dev` in the
+  **background** now.
+- **Read the URL the server actually printed** (its log / stdout) — never assume a port; dev servers
+  fall through to the next free one. `.qa.preview.url` overrides when the bound URL isn't in the log
+  (e.g. a sandbox-assigned port); if its value names an env var, resolve it at run time.
+- Confirm it before you print it:
+  `curl -fsS -o /dev/null -w '%{http_code}\n' "<url>"` → **must be 2xx/3xx.** A dead link is worse
+  than no link — if it won't come up, that's a **blocker** in the handoff, not a link.
+- **Leave the server running** when you stop at Step 5; the link has to work when the human clicks
+  it. Put the exact restart command in the handoff for when the session is gone.
+
+### 2. Land them signed in, on the changed surface
+
+Link to **the thing you changed**, not the home page.
+- If `.qa.preview.authPath` is set (a dev-only sign-in route, e.g. `/dev-login`), route through it —
+  the human has no local password, so a bare link lands them on a login wall. Chain it to the target
+  when that route takes a redirect param; otherwise hand over the two links in order.
+- Walk the link yourself with `.qa.browseSkill` before handing it over.
+
+### 3. Write the test plan → `.context/testplan-<KEY>.md`
+
+Short and executable: **5–10 numbered checks**, each `do X → expect Y`, tied to what *this change*
+claims. No QA boilerplate, and don't re-test what the unit tests already cover. Sections:
+
+- **Open** — the preview link(s) + the restart command.
+- **Checks** — happy path first, then the branches this change introduces (empty state, validation
+  error, the other role/permission), then the neighbouring behaviour it could have regressed.
+- **Not verified locally** — the honest list: 3rd-party callbacks, prod-only data, anything that
+  needs a deploy. This is what to watch after `/autoship`.
+- **If it looks wrong** — where to look first (that log line, that table, that endpoint).
+
+### 4. Complex feature → a second, pre-loaded link
+
+When reaching the state under test takes **more than ~3 manual steps** (sign in → navigate → create
+a record → fill the form), or needs data a fresh local DB doesn't have, also hand over a **fast-path
+link** that lands directly in that state. In order of preference:
+
+1. **Deep links / query params the app already supports** — free, nothing to build.
+2. **A scratch seed script** under `.context/` (gitignored, never committed): it creates the fixture
+   against the local DB/API and prints the URL of what it made. Run it, verify the link, hand over
+   both the link and the one-line re-seed command.
+3. **Neither without new product code** → do **NOT** add prefill/backdoor code to the product just to
+   make testing easier. Say so, and offer it as a follow-up the human can approve.
+
+When several states are worth a look (invalid input, role B, the empty state), emit them as extra
+links from the same seed script — cheap once the script exists.
+
+*Invoked from `/autopilot` (no verification stop): still write the test plan — it doubles as the
+post-deploy check list — but don't hold the dev server open.*
+
 ## Step 5 — Draft PR (pre-warm CI), then STOP for verification
 
 Commit everything (`<KEY>:`). Then pre-warm the ship so **CI runs while the human verifies**:
@@ -236,9 +295,15 @@ Then print a verification handoff and **stop**:
   Video:       <path(s) under .context/ | gif in PR | n/a (video off / not --e2e)>
   Open questions / risks: <anything you'd want a human eye on>
 
-  HOW TO VERIFY:
-    - Run: <exact command / Conductor Run button>
-    - Check: <what to click / curl, expected result>
+  TEST IT:
+    Preview:    <url — signed in, landing on the feature | exact command/curl for non-UI work>
+    Fast path:  <pre-seeded url + re-seed cmd | n/a: reachable in <3 steps | offered: needs product code>
+    Test plan:  .context/testplan-<KEY>.md — <N> checks, first three:
+                  1. <do X → expect Y>
+                  2. <do X → expect Y>
+                  3. <do X → expect Y>
+    Server:     <running here — leave this session open> | restart: <dev> → <url>
+    Not verified locally: <bullets | none>
 
   When it looks right → run /autoship to ship it to <base>
   (add --qa to auto-test the deployed build after the canary; --e2e for staging scenario e2e).

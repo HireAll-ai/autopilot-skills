@@ -51,7 +51,7 @@ Full contract: [`schema/autopilot.config.schema.json`](schema/autopilot.config.s
 `tracker` (issue tracker + ship status), `git` (base branch, merge strategy, protection), `commands`
 (install/typecheck/test/build/dev — empty string = "skip this step"), `review` (auto-reviewer gate +
 pass bar + local reviewers), `deploy` (trigger, healthcheck, env URLs, canary skill), `qa` (browser
-skills + `video`), `rules` (which repo docs to obey + plan/spec dirs + PR template).
+skills + `preview` + `video`), `rules` (which repo docs to obey + plan/spec dirs + PR template).
 
 A consuming repo's config commonly starts with:
 
@@ -83,6 +83,27 @@ node "$(claude plugin root autopilot)/lib/record-e2e.mjs" scenario.json \
 - **Surfacing** (`qa.video.surface`): `context` → artifact under `.context/` referenced in the handoff
   (renders in the Conductor chat; gif previews inline); `pr-gif` → a committed gif referenced by raw
   URL in the PR body (GitHub can't embed API-uploaded video); `both`; `none`.
+
+## Verification handoff (`/autodev` Step 4.8)
+
+`/autodev` stops for a human to verify, so it hands over something clickable rather than a
+paragraph: a **live preview link** to the running dev server (URL read from the server's own
+output, `curl`-checked before it's printed, the server left up), routed through
+`qa.preview.authPath` (e.g. `/dev-login`) so the link lands past the login wall and on the changed
+surface — plus a **test plan** at `.context/testplan-<KEY>.md`: 5–10 `do X → expect Y` checks, what
+could **not** be verified locally, and where to look when it's wrong.
+
+When reaching the state under test takes more than ~3 manual steps, it also hands over a
+**fast-path link** that lands directly in that state — an existing deep link, or a scratch seed
+script under `.context/` that creates the fixture and prints its URL. It will **not** add
+prefill/backdoor code to the product to make testing easier; that gets offered, not done.
+
+```json
+"qa": { "preview": { "authPath": "/dev-login", "url": "http://localhost:$CONDUCTOR_PORT" } }
+```
+
+Both keys are optional: `url` is only needed when the bound URL isn't in the dev server's output
+(sandbox-assigned port), `authPath` only when the app has a login wall.
 
 ## Requirements
 
