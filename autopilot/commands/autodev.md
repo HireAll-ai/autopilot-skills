@@ -60,12 +60,19 @@ ticket key, `<base>` = `.git.baseBranch`, `<typecheck>` = `.commands.typecheck`,
 `.rules.planDir`, etc. If a command value is empty (`""`), that step is **not applicable to this
 project — skip it and say so** (don't invent one).
 
-## Required skills (verify installed before running)
-If any referenced skill doesn't resolve, install it — don't skip the step silently:
-- **superpowers:** `writing-plans`, `test-driven-development`, `executing-plans`,
-  `subagent-driven-development`.
-- **The QA/review skills named in config** — `.review.localReviewers` (Step 4), `.qa.qaSkill`
-  (Step 4, required for UI features), `.qa.browseSkill` (Step 4.5, only with `--e2e`). `/run` optional.
+## Required skills (check once, up front)
+
+Resolve these **once** at the start, not lazily mid-run — and never burn turns installing something
+that isn't there. Two tiers:
+
+- **Optional helpers — `superpowers:`** `writing-plans`, `test-driven-development`,
+  `executing-plans`, `subagent-driven-development`. Nice when present; **if they don't resolve, just
+  do the step directly** (Step 1 plans into a plan file / TodoWrite by hand; Step 3 writes the tests
+  by hand). Do **not** install them mid-run and do **not** skip the underlying work.
+- **Load-bearing — the skills named in config**: `.review.localReviewers` (Step 4), `.qa.qaSkill`
+  (Step 4, required for UI features), `.qa.browseSkill` (Step 4.5, only with `--e2e`). `/run`
+  optional. If one of these is configured but doesn't resolve, **say so in the handoff** — the gate
+  it represents did not run.
 
 ## What it does NOT do
 - No **mergeable** PR — Step 5 opens a **draft** PR (pre-warms CI while you verify),
@@ -128,7 +135,9 @@ Work the plan task-by-task:
 - Match surrounding code (naming, patterns, comment density).
 - Commit incrementally with `<KEY>:` prefixed messages (what + why). Keep commits coherent per
   logical unit; never `git add -A` blindly — stage intentional files.
-- `<typecheck>` must pass before each commit (skip only if `.commands.typecheck` is empty).
+- `<typecheck>` must be green **before each push and at the end of each logical batch of commits** —
+  not after every single commit. On a ten-commit feature that is ten full type-checks for one signal;
+  CI and Step 3/4 catch the rest. (Skip entirely if `.commands.typecheck` is empty.)
 
 ## Step 3 — Test
 

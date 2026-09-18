@@ -184,6 +184,33 @@
           "additionalProperties": { "type": "string" },
           "description": "Named environment URLs used by the canary (e.g. {\"client\":\"...\",\"admin\":\"...\"})."
         },
+        "verify": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How to confirm the merge is actually LIVE before claiming a deploy. Omit only when nothing can confirm it. NOTE: when an external builder deploys (Coolify, Vercel, Render, Fly), a green push-triggered CI run on the base branch is NOT evidence of a deploy — that builder is invisible to `gh run`, and the healthcheck keeps answering from the previous build until the swap. Configure a build-id endpoint instead.",
+          "properties": {
+            "mode": {
+              "enum": ["build-id", "github-run", "none"],
+              "description": "'build-id' = poll buildIdUrl until it reports the merge SHA (the only honest check with an external builder); 'github-run' = the deploy IS a GitHub Actions run, so watch the push run for the merge SHA; 'none' = nothing can confirm it — canary anyway and report the deploy as UNVERIFIED. Absent: inferred as 'github-run' when deploy.trigger is 'github-action', else 'none'."
+            },
+            "buildIdUrl": {
+              "type": "string",
+              "description": "mode=build-id: URL returning the commit the running build was made from (e.g. 'https://app.example.com/version')."
+            },
+            "buildIdJq": {
+              "type": "string",
+              "description": "mode=build-id: jq filter selecting the commit from that response (e.g. '.commit'). Default '.commit'."
+            },
+            "restartedAtJq": {
+              "type": "string",
+              "description": "mode=build-id, optional: jq filter for a process-start timestamp (e.g. '.startedAt'). Used as the fallback signal when the commit reads as unknown/empty because the build arg never arrived — a restart after the merge time then counts as deployed, and the report says so."
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "description": "How long to poll before reporting the deploy unverified (not failed). Default 600."
+            }
+          }
+        },
         "canarySkill": {
           "type": "string",
           "description": "Skill/command for the post-deploy canary (e.g. '/canary')."

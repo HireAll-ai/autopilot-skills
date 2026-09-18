@@ -53,10 +53,13 @@ Placeholders below resolve from config: `<base>` = `.git.baseBranch`, `<KEY>` = 
 key, `<checks>` = `.git.protection.requiredChecks`, `<mergeStrategy>` = `.git.mergeStrategy`, etc.
 
 ## Required skills (verify installed before running)
-Confirm each resolves; install rather than fail silently:
-- **`.review.skill`** (e.g. `greploop`) — Step 2, when `.review.gate != none`.
-- **`.deploy.canarySkill`** (e.g. `/canary`) — Step 5.
-- **`.qa.qaOnlySkill`** — Step 5.5 (only with `--qa`). **`.qa.browseSkill`** — Step 5.6 (only with `--e2e`).
+Check each **once**, up front — a skill that doesn't resolve has a defined fallback, so never stall
+mid-run hunting for one:
+- **`.review.skill`** (e.g. `greploop`) — Step 2, when `.review.gate != none`. **Optional**: when the
+  key is absent or the skill doesn't resolve, Step 2.1 drives the loop inline with `gh`.
+- **`.deploy.canarySkill`** (e.g. `/canary`) — Step 5.2. Missing → `curl` the changed surface directly.
+- **`.qa.qaOnlySkill`** — Step 5.5 (only with `--qa`). **`.qa.browseSkill`** — Step 5.6 (only with
+  `--e2e`). Missing → say the optional pass was skipped; never silently claim it ran.
 
 ## Non-negotiable rules (from config + the repo's own docs `.rules.docs`)
 
@@ -72,8 +75,10 @@ Confirm each resolves; install rather than fail silently:
 - **Move the ticket to `.tracker.shipStatus`** as the final step on a fully successful ship (Step 6);
   running `/autoship` IS the explicit go-ahead. Skip + report if the ship stopped short.
 - **`<typecheck>` must pass before any commit** (`.commands.typecheck`).
-- Merge to `<base>` triggers the deploy per `.deploy` (when `.deploy.autoDeploys`); it health-checks
-  `.deploy.healthcheck`. Never deploys on a red required check.
+- Merge to `<base>` triggers the deploy per `.deploy` (when `.deploy.autoDeploys`). Never deploys on a
+  red required check. **Whether that deploy actually landed is proven in Step 5 via
+  `.deploy.verify`** — with an external builder, neither a green push-CI run nor a 200 from
+  `.deploy.healthcheck` is evidence (the old build answers both).
 
 ## Hard gate — NEVER merge unless ALL hold
 
@@ -137,9 +142,16 @@ Capture the PR number (`gh pr view --json number,url`).
 Skip Step 2.1 entirely when `.review.gate == none`. Otherwise repeat until the hard gate holds:
 
 1. **Auto-reviewer → pass bar** — flipping to ready (Step 1) kicks off `.review.gate`'s review; every
-   push re-runs it. Invoke **`.review.skill`** (e.g. `greploop`) to drive the loop (poll, fix
-   actionable comments, resolve threads, push, re-review) until **`.review.passBar` + 0 unresolved
-   threads**. If a manual re-trigger is ever needed, use `.review.mention`.
+   push re-runs it. Drive the loop (poll, fix actionable comments, resolve threads, push, re-review)
+   until **`.review.passBar` + 0 unresolved threads**. If a manual re-trigger is ever needed, use
+   `.review.mention`.
+   - **`.review.skill` set and resolving** → invoke it (e.g. `greploop`); it owns the loop.
+   - **Otherwise — drive it inline, don't stall.** Poll the review with
+     `gh pr view <PR> --json reviewDecision,comments` and
+     `gh api "repos/{owner}/{repo}/pulls/<PR>/comments" --jq '.[] | {id,path,line,body}'`; fix what is
+     actionable, reply on the thread with the fixing commit (or argue it down), push, wait for the
+     re-review. Resolve threads with the GraphQL `resolveReviewThread` mutation — unresolved threads
+     block the merge when `.git.protection.requireThreadResolution`.
 2. **One CI confirmation per push.** Every push re-triggers the required checks `<checks>`. After the
    loop's latest push, watch the rollup **once**:
    ```bash
@@ -210,43 +222,79 @@ echo "merged as $MERGE_SHA"
 
 ## Step 5 — Verify the deploy (light canary)
 
-Skip this step if `.deploy.trigger == none`. Otherwise: merge to `<base>` triggers the deploy, which
-**already health-checks `.deploy.healthcheck`** and fails on a red build — a green base run means the
-env is up at the API level. Don't re-pay that as a heavy pass:
+Skip this step if `.deploy.trigger == none`.
 
-1. Watch **the push-triggered base run for `$MERGE_SHA`** (not "the latest run", not a same-SHA manual
-   run). Filter by head SHA **and `event == "push"`**, retrying while queued, then watch:
-   ```bash
-   REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner); RUN_ID=""
-   for i in $(seq 1 30); do   # ~10 min: the push run can queue behind earlier deploys
-     RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$MERGE_SHA&event=push&branch=$BASE&per_page=20" \
-       --jq '[.workflow_runs[]][0].id // empty')
-     [ -n "$RUN_ID" ] && break; sleep 20
-   done
-   ```
-   - **Run found** → `gh run watch "$RUN_ID" --exit-status`:
-     - **non-zero exit** (deploy/health never passed) → env **broken** for this merge → **hard STOP**:
-       don't run 5.5 / 5.6 / 6; surface it and offer the **revert recipe below**.
-     - **exit 0** → deploy verified → continue to the canary.
-   - **Run still not found** after the window → **not a failure, just "not observed yet"**. Do **NOT**
-     revert and do **NOT** move the ticket — report that the deploy for `$MERGE_SHA` isn't verified
-     yet and the operator should re-check base CI + canary manually. The ship **landed**; only its
-     automated verification is pending.
+**What counts as evidence.** Only a signal that names the running build proves the merge is live.
+A green push-triggered CI run on `<base>` does **not**, unless that run is itself the deployer — with
+an external builder (Coolify, Vercel, Render, Fly) the build happens off GitHub, invisible to
+`gh run`, and `.deploy.healthcheck` keeps answering **from the previous build** until the swap. Take
+the mode from `.deploy.verify.mode`; when absent, infer `github-run` if `.deploy.trigger ==
+"github-action"`, else `none`.
 
-   **Revert recipe** — Step 4 may have deleted the branch; branch fresh from the base:
-   ```bash
-   git fetch origin "$BASE"
-   git switch -c "revert-<KEY>-deploy" "origin/$BASE"
-   git revert --no-edit "$MERGE_SHA"
-   git push -u origin HEAD   # then open a PR --base "$BASE" with the populated template
-   ```
-2. Run green → a **light** canary that **exercises what this PR changed**:
-   - **UI change** → invoke **`.deploy.canarySkill`** against the deploy URL (arg, else
-     `.deploy.urls.client`) for a quick page-load smoke of the touched flow.
-   - **Backend / API / worker change** → hit the *shipped behavior* directly: `curl` the changed
-     endpoint and assert the response, or assert the worker/queue effect. Don't collapse to "is it up".
-   Keep it **light**. A broken page / failed assertion / console-error wall = a real problem → surface
-   it + offer the revert recipe (don't auto-revert). **A real canary problem also blocks 5.5/5.6/6.**
+### 5.1 — Confirm the merge is live
+
+**mode `build-id`** — poll the build-id endpoint until it reports `$MERGE_SHA`:
+```bash
+VURL=$(cfg '.deploy.verify.buildIdUrl'); VJQ=$(cfg '.deploy.verify.buildIdJq' '.commit')
+DEADLINE=$(( $(date +%s) + $(cfg '.deploy.verify.timeoutSeconds' '600') )); LIVE=""
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  LIVE=$(curl -fsS --max-time 10 "$VURL" | jq -r "$VJQ // empty" 2>/dev/null || true)
+  [ "$LIVE" = "$MERGE_SHA" ] && break
+  sleep 15
+done
+```
+- `LIVE == $MERGE_SHA` → **deployed, verified.** Continue to the canary.
+- Endpoint reachable but the commit reads `unknown`/empty (the build arg never arrived — it is **not**
+  a failed deploy): if `.deploy.verify.restartedAtJq` is set, accept a restart **after** the merge
+  time as deployed and say the evidence was the restart, not the commit. Otherwise → **unverified**
+  (below).
+- Endpoint **unreachable for the whole window** → the env is down at the API level → **hard STOP**:
+  skip 5.5 / 5.6 / 6, surface it, offer the **revert recipe**.
+- Still the old commit at the deadline → **unverified** (below). The builder may just be slow.
+
+**mode `github-run`** — the deploy *is* a GitHub Actions run, so watch the push run for `$MERGE_SHA`
+(not "the latest run", not a same-SHA manual run):
+```bash
+REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner); RUN_ID=""
+for i in $(seq 1 30); do   # ~10 min: the push run can queue behind earlier deploys
+  RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$MERGE_SHA&event=push&branch=$BASE&per_page=20" \
+    --jq '[.workflow_runs[]][0].id // empty')
+  [ -n "$RUN_ID" ] && break; sleep 20
+done
+```
+Run found → `gh run watch "$RUN_ID" --exit-status`: non-zero → env **broken** for this merge → **hard
+STOP** (skip 5.5 / 5.6 / 6, offer the revert recipe); exit 0 → **deployed, verified**. Run never
+found → **unverified** (below).
+
+**mode `none`** — nothing can confirm the build. Go straight to the canary and report the deploy as
+**unverified**; never print "deploy verified". *(Worth fixing: a two-line `/version` route returning
+the commit baked in at build time turns this into `build-id`.)*
+
+**Unverified** (any mode) is **not a failure** — the ship **landed**, only its automated confirmation
+is pending. Do **NOT** revert. Still run the canary, and say plainly in Step 6 that the deploy is
+unverified and the operator should re-check. It does not by itself block Step 6.
+
+**Revert recipe** — Step 4 may have deleted the branch; branch fresh from the base:
+```bash
+git fetch origin "$BASE"
+git switch -c "revert-<KEY>-deploy" "origin/$BASE"
+git revert --no-edit "$MERGE_SHA"
+git push -u origin HEAD   # then open a PR --base "$BASE" with the populated template
+```
+
+### 5.2 — Light canary
+
+A **light** canary that **exercises what this PR changed** — and, when 5.1 came back unverified,
+this is the *only* evidence, so make it assert something the new build alone can satisfy:
+- **UI change** → invoke **`.deploy.canarySkill`** against the deploy URL (arg, else
+  `.deploy.urls.client`, else the first `.deploy.urls` entry) for a quick page-load smoke of the
+  touched flow.
+- **Backend / API / worker change** → hit the *shipped behavior* directly: `curl` the changed
+  endpoint and assert the response, or assert the worker/queue effect. Don't collapse to "is it up" —
+  a new route answering 401/200 while a bogus route answers 404 proves the new server build is live.
+
+Keep it **light**. A broken page / failed assertion / console-error wall = a real problem → surface it
++ offer the revert recipe (don't auto-revert). **A real canary problem also blocks 5.5/5.6/6.**
 
 ## Step 5.5 — Optional automated QA (`--qa`)
 
@@ -287,7 +335,7 @@ Print the report:
   Review:    <gate> <iters>, <passBar>, <N> resolved   (or: gate=none)
   CI:        green (<checks>)
   Merge:     <mergeStrategy> <SHA> (direct | --admin)
-  Deploy:    <env> — canary <ok | issues>   (or: deploy=none)
+  Deploy:    <env> — <verified <SHA> via <mode> | UNVERIFIED: <why>>, canary <ok | issues>   (or: deploy=none)
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
   Video:     <path(s) | gif in PR | n/a>
