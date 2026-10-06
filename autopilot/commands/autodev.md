@@ -1,7 +1,7 @@
 ---
 description: Autonomous feature build — plan → implement → test → quality-review (+ opt-in --e2e browser e2e, optionally recorded to video), ending in a fully implemented & tested feature on the branch plus a DRAFT PR (CI pre-warmed; the configured auto-reviewer runs once /autoship flips it to ready), a live preview link and a written test plan, then STOPS for your verification. Does not ship — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--e2e] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch
 ---
 
 # /autodev — plan → build → test, then wait for verification
@@ -24,41 +24,36 @@ Input (`$ARGUMENTS`, optional):
   browser-QA pass for UI features (one browser pass, not two). When `qa.video.enabled` is true in
   config, the scenario walk is **recorded to video** (Step 4.5). Off by default.
 - `--reconfigure` — re-run the config interview (Step 0.0) even if a config already exists.
+- `--preloaded` — internal, passed by `/autopilot`: init check + config load already ran and the config
+  is in context, so Step 0.0 is skipped.
 
-## Init check (runs before Step 0.0)
+## Step 0.0 — Init check + load project config (ALWAYS FIRST, one call)
 
-```bash
-test -f .claude/autopilot.init.json || echo "NOT_INITIALIZED"
-```
-- `NOT_INITIALIZED` → **STOP.** This repo has not been initialized for autopilot. Tell the user to
-  run **`/autopilot:init`** first (verifies/installs gstack, ensures the project config, scaffolds
-  the factory when fabro is available, bootstraps `DESIGN.md` and baseline docs), then re-run this
-  command. Do not improvise a partial init here.
-
-## Step 0.0 — Load project config (ALWAYS FIRST)
+Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the config is in context).
 
 ```bash
-CFG="${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh"
-cfg() { "$CFG" get "$1" "${2-}"; }                 # cfg '.commands.typecheck'  → value
-"$CFG" ensure >/tmp/autopilot.cfg.json 2>/tmp/autopilot.cfg.err; rc=$?
+"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" load; echo "rc=$?"     # add --reconfigure if passed
 ```
-- **rc=0** → config loaded. Read any value with `cfg '.<jq.path>'` (e.g. `cfg '.git.baseBranch'`).
-- **rc=3 (or `--reconfigure`)** → **no config yet.** `/tmp/autopilot.cfg.json` holds an **autodetected
-  draft** (package manager, base branch + protection, ticket prefix, health URL). Run the
-  **first-run interview**: show the developer the detected values and confirm/fill the gaps the
-  detector can't know — `tracker.type`/`tracker.mcp`/`tracker.shipStatus`, `review.gate`+`skill`,
-  `deploy.urls`, and whether to enable `qa.video`. Prefer `AskUserQuestion` (Conductor) for the
-  choices. Then **write** the completed JSON to `.claude/autopilot.config.json`, `git add` it, and
-  validate: `"$CFG" validate`. This is a one-time cost per repo; it's committed and reused by the
-  whole team and by `/autoship`.
-- **rc=2 (or any other code)** → the loader hit a hard error (jq not installed, unreadable config,
-  or a bad subcommand). Read `/tmp/autopilot.cfg.err`, surface the exact message (commonly: install
-  `jq`), and **STOP** — do not proceed to `cfg`/build steps.
+- **rc=0** → stdout **is** the config. It is read **once**, here — keep it in context; every
+  `<placeholder>` / `.path` below resolves from it.
+- **rc=4** → `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (verifies/
+  installs gstack, ensures the project config, scaffolds the factory when fabro is available,
+  bootstraps `DESIGN.md` and baseline docs), then re-run this command. Don't improvise a partial init.
+- **rc=3** → no config yet (or `--reconfigure`): stdout is an **autodetected draft**. Read
+  `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md` and run that interview, then continue.
+- **rc=2 / other** → hard loader error (commonly: `jq` not installed) on stderr → surface it, **STOP**.
 
-Throughout this document, `<name>` placeholders resolve from config: `<KEY>` = a `<keyPrefix>-NNN`
-ticket key, `<base>` = `.git.baseBranch`, `<typecheck>` = `.commands.typecheck`, `<planDir>` =
-`.rules.planDir`, etc. If a command value is empty (`""`), that step is **not applicable to this
-project — skip it and say so** (don't invent one).
+**Shell state does not persist between Bash calls** — don't lean on variables or functions from an
+earlier call. Substitute config values literally into each command; for a value needed inside a
+script, call `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" get '<.path>'` within that same command.
+
+Placeholders: `<KEY>` = a `<keyPrefix>-NNN` ticket key, `<base>` = `.git.baseBranch`, `<planDir>` =
+`.rules.planDir`, `<dev>` = `.commands.dev`, `<test>` = `.commands.test`, etc. If a command value is
+empty (`""`), that step is **not applicable to this project — skip it and say so** (don't invent one).
+
+**`<typecheck>`** = `"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"` — runs `.commands.typecheck` from the
+repo root, passes trivially when it's empty, and is a **no-op when this exact working tree already
+passed** (cached by tree hash). Always call it this way; re-asserting it at every gate is then free.
 
 ## Required skills (check once, up front)
 
@@ -69,10 +64,10 @@ that isn't there. Two tiers:
   `executing-plans`, `subagent-driven-development`. Nice when present; **if they don't resolve, just
   do the step directly** (Step 1 plans into a plan file / TodoWrite by hand; Step 3 writes the tests
   by hand). Do **not** install them mid-run and do **not** skip the underlying work.
-- **Load-bearing — the skills named in config**: `.review.localReviewers` (Step 4), `.qa.qaSkill`
-  (Step 4, required for UI features), `.qa.browseSkill` (Step 4.5, only with `--e2e`). `/run`
-  optional. If one of these is configured but doesn't resolve, **say so in the handoff** — the gate
-  it represents did not run.
+- **Load-bearing — the skills named in config**: `.review.localReviewers` (Step 4),
+  `.qa.qaOnlySkill` (Step 4, required for UI features; falls back to `.qa.qaSkill`),
+  `.qa.browseSkill` (Step 4 re-verify, Step 4.5 with `--e2e`). `/run` optional. If one of these is
+  configured but doesn't resolve, **say so in the handoff** — the gate it represents did not run.
 
 ## What it does NOT do
 - No **mergeable** PR — Step 5 opens a **draft** PR (pre-warms CI while you verify),
@@ -99,9 +94,7 @@ project's rules here — follow the ones this repo ships.
 ## Step 0 — Preflight
 
 ```bash
-git rev-parse --abbrev-ref HEAD
-git status --porcelain
-KEYPREFIX=$(cfg '.tracker.keyPrefix'); BASE=$(cfg '.git.baseBranch')
+git rev-parse --abbrev-ref HEAD; git status --porcelain
 ```
 
 - If `.tracker.keyRequired` is true, the change needs a `<KEY>` (`<keyPrefix>-NNN`) ticket. If the
@@ -153,67 +146,43 @@ already guarantee. Name files by behavior, not ticket id; one spec per source fi
 
 Run them green:
 ```bash
-[ -n "$(cfg '.commands.typecheck')" ] && eval "$(cfg '.commands.typecheck')"
-[ -n "$(cfg '.commands.test')" ] && eval "$(cfg '.commands.test')"   # or targeted: .commands.testFilter with {pkg}
+"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"
+<test>          # or targeted: .commands.testFilter with {pkg}; skip if .commands.test is empty
 ```
 Pure data-model / config / tooling work (no runtime logic) → tests can be skipped; **say so**.
 
-## Step 4 — Local quality gate
+## Step 4 — Local quality gate (parallel, report-only subagents)
 
-Run the local review loop on the diff before handing to the human:
-- **For UI features, start the dev server FIRST, in the background** (`<dev>` = `.commands.dev`, or
-  docker compose as the feature needs) — it warms up while the reviews below run, and it stays
-  up through Step 4.8 so the preview link you hand over actually answers.
-- Invoke the reviewers in **`.review.localReviewers`** (e.g. `/review` + `/codex`) **concurrently** —
-  independent reads of the same diff. Fix high-confidence findings from both.
-- **For UI features, browser QA is mandatory:** run **`.qa.qaSkill`** (`/qa`) against the (already
-  warm) dev server, fix the bugs it surfaces, then re-verify. If the UI genuinely can't run locally,
-  **do not skip silently** — STOP and report it as a blocker. **If `--e2e` was passed, skip this
-  heuristic pass and run the scenario e2e in Step 4.5 instead** — one browser pass, not two.
+Run the local review on the diff before handing to the human:
+- **For UI features, start the dev server FIRST, in the background** (`<dev>`, or docker compose as
+  the feature needs) and read the URL it prints — it warms up while the reviews run, and it stays up
+  through Step 4.8 so the preview link you hand over actually answers.
+- **Dispatch the passes as parallel subagents** — one `Agent` call per pass, **all in a single
+  message** so they really run concurrently, and so their long skill bodies and transcripts stay out
+  of this context:
+  - one per entry in **`.review.localReviewers`** (e.g. `/review`, `/codex`);
+  - **UI feature, no `--e2e`:** one more running **`.qa.qaOnlySkill`** (`/qa-only`; else
+    `.qa.qaSkill` told to report only) against the warm dev URL, scoped to the flows this diff touches.
+    Browser QA is **mandatory** for UI features. If the UI genuinely can't run locally, **do not skip
+    silently** — STOP and report it as a blocker.
+
+  Each prompt: *"In `<repo path>`, invoke the `<skill>` skill on the diff `git diff <base>...HEAD`.
+  REPORT ONLY — do not edit, commit or push. Return findings as: severity, confidence, file:line,
+  problem, suggested fix (QA: + repro steps and screenshot paths). If the skill doesn't resolve, say
+  so and stop."* Subagents never edit: concurrent writers on one tree clobber each other. **You** own
+  every fix.
+- Merge the reports, dedupe, fix the high-confidence findings (`<KEY>:` commits), then **re-verify
+  only the fixed UI bugs** with `.qa.browseSkill` (their repro steps, not another full QA pass).
+- `--e2e` passed → no QA subagent; Step 4.5 is the one browser pass.
 - Re-run `<typecheck>` (+ tests) after fixes.
 
 ## Step 4.5 — Scenario browser e2e (only when `--e2e` is passed)
 
-Opt-in deterministic happy-path verification. Walks **these exact user flows** end-to-end (unlike
-the heuristic bug-hunt of Step 4). Skipped entirely unless `--e2e` is in `$ARGUMENTS`.
-
-1. **Derive scenarios** — from the diff + the `<KEY>` ticket + the feature intent, write **2–4 key
-   user flows**: the happy path plus the critical branches this change introduces (submit → success,
-   invalid input → error, the cross-cutting API→UI→DB effect). Record them explicitly.
-2. **Run** — against the already-warm local dev server:
-   - **If `.qa.video.enabled` is true:** drive each scenario with the **recorder** so the run is
-     captured to video. Write the scenario as JSON (steps: goto/fill/click/waitFor/expect/screenshot —
-     see the recorder header) and run (pass `--gif` when the surface needs a PR gif):
-     ```bash
-     GIF=""; case "$(cfg '.qa.video.surface' 'context')" in both|pr-gif) GIF="--gif";; esac
-     node ${CLAUDE_PLUGIN_ROOT}/lib/record-e2e.mjs <scenario>.json \
-       --out-dir "$(cfg '.qa.video.dir' '.context/video')" \
-       --format  "$(cfg '.qa.video.format' 'mp4')" $GIF \
-       --base-url "<local dev url>" --max-seconds "$(cfg '.qa.video.maxSeconds' '90')"
-     ```
-     Exit **0** = all steps passed; **1** = a step failed (video still saved — use it to debug);
-     **2** = Playwright unavailable → fall back to `.qa.browseSkill` for this scenario **without**
-     video (never let a missing recorder block the e2e); **3** = scenario/usage error (bad flags or
-     malformed scenario JSON) → **fix the scenario and re-run; do NOT fall back and do NOT mark it
-     green.** For non-UI flows, assert the end effect (DB row / API response), not the page.
-   - **Else** (`video` off): drive each scenario step-by-step with **`.qa.browseSkill`** (`/browse`):
-     navigate → fill → click → assert state / screenshot.
-3. **Fix-loop (the "tested" guarantee)** — a failing scenario → find the cause, fix the code
-   (`<KEY>:` commit), `<typecheck>`, re-run that scenario. **Max 3 attempts** per scenario. Still
-   failing → do **NOT** present the feature as green; carry the red e2e into the Step 5 handoff as a
-   blocker (Autonomy contract).
-4. **Report** — write the scenarios + per-step result + artifact paths (screenshots **and video**)
-   to `.context/e2e-<KEY>.md`; it feeds the PR body and the Step 5 handoff. **Video surfacing** per
-   `.qa.video.surface`:
-   - `context` / `both` → the mp4 (or webm) is already under `.context/` (gitignored — perfect for
-     chat) — reference it in the handoff so it renders in the Conductor chat (prefer the gif for
-     guaranteed inline preview).
-   - `pr-gif` / `both` → include the **gif** in the PR body. GitHub renders drag-dropped video only;
-     an API-authored body cannot embed fresh video, so use the gif. Because `.context/` is
-     gitignored, first copy the gif to a **committed** path (e.g. `docs/qa-media/<KEY>/<name>.gif`),
-     commit it, and reference its raw URL
-     (`https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>`); link the mp4/webm artifact
-     path for full quality.
+Skipped entirely unless `--e2e` is in `$ARGUMENTS`. Otherwise **Read
+`${CLAUDE_PLUGIN_ROOT}/lib/e2e.md`** and follow its **local** mode against the warm dev server: derive
+2–4 scenarios, run them (recorded to video when `.qa.video.enabled`), fix-loop **max 3 attempts** per
+scenario, report to `.context/e2e-<KEY>.md`. A scenario still red after that is a **blocker** in the
+Step 5 handoff — never present the feature as green.
 
 ## Step 4.8 — Live preview link + test plan (always)
 
@@ -240,7 +209,9 @@ Link to **the thing you changed**, not the home page.
 - If `.qa.preview.authPath` is set (a dev-only sign-in route, e.g. `/dev-login`), route through it —
   the human has no local password, so a bare link lands them on a login wall. Chain it to the target
   when that route takes a redirect param; otherwise hand over the two links in order.
-- Walk the link yourself with `.qa.browseSkill` before handing it over.
+- Make sure the link works end to end before handing it over. If Step 4's QA or Step 4.5's e2e already
+  drove this exact route (auth path + target) this run, the `curl` check is enough; otherwise walk it
+  once with `.qa.browseSkill`.
 
 ### 3. Write the test plan → `.context/testplan-<KEY>.md`
 
@@ -277,11 +248,11 @@ post-deploy check list — but don't hold the dev server open.*
 
 Commit everything (`<KEY>:`). Then pre-warm the ship so **CI runs while the human verifies**:
 
-1. Push the branch.
+1. Push the branch: `git push -u origin HEAD`.
 2. Open a **draft PR**: read `.rules.prTemplate`, populate **every** section (None/N/A allowed —
    context is hot now, write the real body; `/autoship` reuses it), write it to a temp file
    (`tmp=$(mktemp)`), then:
-   `gh pr create --draft --base "$(cfg '.git.baseBranch')" --title "<KEY>: <summary>" --body-file "$tmp"`
+   `gh pr create --draft --base "<base>" --title "<KEY>: <summary>" --body-file "$tmp"`
    If a draft PR already exists (re-run), update it — push + `gh pr edit --body-file "$tmp"` — don't
    open a second one. `rm "$tmp"` afterwards.
 3. CI starts automatically. **Do not post a manual review trigger.** The configured auto-reviewer

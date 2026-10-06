@@ -20,7 +20,7 @@ claude plugin marketplace add HireAll-ai/autopilot-skills
 claude plugin install autopilot@autopilot-skills
 ```
 
-Then `/autodev`, `/autoship`, `/autopilot` resolve in any project. On the first run in a repo without a
+Then `/autodev`, `/autoship`, `/autopilot` resolve in any project (run `/autopilot:init` once per repo first). On the first run in a repo without a
 config, they **autodetect + confirm** and write `.claude/autopilot.config.json` (commit it — the whole
 team then reuses it). Update the plugin with `claude plugin marketplace update autopilot-skills`.
 
@@ -46,9 +46,14 @@ See the plugin README.
 .claude-plugin/marketplace.json     # this marketplace, lists the autopilot plugin
 autopilot/                          # the plugin
   .claude-plugin/plugin.json
-  commands/{autodev,autoship,autopilot}.md   # reference ${CLAUDE_PLUGIN_ROOT}/lib/...
-  lib/autopilot-config.sh                     # config loader / autodetect / validate
+  commands/{init,autodev,autoship,autopilot,factory-init}.md   # reference ${CLAUDE_PLUGIN_ROOT}/lib/...
+  skills/factory/SKILL.md                     # /factory dispatch
+  lib/autopilot-config.sh                     # config loader (load/ensure/get/detect/validate)
+  lib/typecheck.sh                            # typecheck, cached per working tree
+  lib/verify-deploy.sh                        # /autoship Step 5.1 deploy proof (background)
+  lib/config-interview.md, lib/e2e.md         # read on demand (first run / --e2e only)
   lib/record-e2e.mjs                          # Playwright scenario runner + video
+  lib/factory-scaffold/                       # snapshot copied by /factory-init
   schema/autopilot.config.schema.json
   README.md
 ```

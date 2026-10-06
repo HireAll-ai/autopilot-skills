@@ -79,6 +79,11 @@
           "default": true,
           "description": "Pass --delete-branch on merge."
         },
+        "mergeQueue": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when the base branch merges through a GitHub merge queue: /autoship enqueues with 'gh pr merge --auto' and waits for the queue instead of merging directly. Also taken at run time when a direct merge is rejected for requiring a merge queue."
+        },
         "protection": {
           "type": "object",
           "additionalProperties": false,
@@ -208,6 +213,10 @@
             "timeoutSeconds": {
               "type": "integer",
               "description": "How long to poll before reporting the deploy unverified (not failed). Default 600."
+            },
+            "workflow": {
+              "type": "string",
+              "description": "mode=github-run: the deploy workflow's name or file (e.g. 'deploy.yml'). A merge usually starts several push runs (CI, lint, deploy); without this, every push run for the merge SHA must go green before the deploy counts as verified."
             }
           }
         },

@@ -11,7 +11,8 @@ building; the operator answers the gates.
 
 ## 0. Preflight (this repo, this machine)
 
-0. Initialized? `.claude/autopilot.init.json` must exist. If not — **stop** and
+0. Initialized? `.claude/autopilot.init.json` must exist at the repo root
+   (`git rev-parse --show-toplevel`). If not — **stop** and
    tell the user to run `/autopilot:init` first (verifies/installs gstack,
    scaffolds the factory, bootstraps DESIGN.md + baseline docs). The lanes
    delegate to gstack skills (/qa, /cso, /document-release), so dispatching
