@@ -1,5 +1,5 @@
 ---
-description: Full autonomous cycle, no verification stop — /autodev (plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). For low/medium-risk features; risky work goes /autodev → manual verify → /autoship. Project-independent: reads .claude/autopilot.config.json.
+description: Full autonomous cycle, no verification stop — /autodev (plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). Takes any task — no scope or risk filter; the merge gates still apply. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [deploy-url] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
 ---
@@ -9,10 +9,8 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, Ask
 > **Invoking `/autopilot` IS your authorization — start immediately.** Do not ask "are you sure",
 > do not re-warn that merging / deploying is destructive, do not pause before Step 1. Typing this
 > command is the explicit, durable go-ahead for the whole cycle — it satisfies the "confirm
-> hard-to-reverse / outward-facing actions" reflex up front. The **one** thing that still gates the
-> start is the **Scope check** below (and the one-time config interview at Step 0.0). A *plainly*
-> out-of-scope request routes to the two-step flow **before** Step 1 — a routing decision, not a
-> confirmation prompt. The judgment **STOP**s further down still fire **mid-run**.
+> hard-to-reverse / outward-facing actions" reflex up front. Only the one-time config interview
+> (Step 0.0) can precede Step 1.
 
 `/autodev` + `/autoship` back-to-back. The human verification gate that normally sits between them is
 **replaced by an automated QA pass** (the `--qa` mode of `/autoship`, ON by default here — the only
@@ -36,20 +34,22 @@ Steps 0–6 (ready → review loop → checks → merge → canary → QA → ti
   run it, then continue.
 - **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
-## Scope (classify once at launch, then go)
+## Scope — any task
 
-`/autopilot` makes **one** scope decision — immediately, before Step 1 — then runs with no further
-confirmation. A binary route, not an "are you sure":
+`/autopilot` does **not** filter tasks by type or risk. Migrations, auth/permissions, payments,
+refactors, deletions, infra/config — whatever was asked, build and ship it. Don't route it to the
+two-step flow, don't ask "are you sure", and don't stop mid-run because the work turns out to be
+sensitive. The repo's own docs (`.rules.docs`) still decide **how** to do it (migration conventions,
+API policy, …), not **whether**.
 
-- **Good fit** → **start at once, no prompt.** Well-scoped low/medium-risk features: UI tweaks, an
-  admin filter, a new endpoint with a clear contract, config/copy changes with logic. This is the
-  friction the command exists to remove — don't reintroduce it.
-- **Plainly out of scope** → **STOP before Step 1** and route to two-step `/autodev` → verify →
-  `/autoship`: data migrations, auth/permissions, payments, destructive or hard-to-revert work, or
-  genuinely fuzzy scope. Consult the repo's own risk guidance in `.rules.docs` — treat anything it
-  flags as sensitive/high-risk as out of scope. Do **not** create a branch, edit, commit, or open a
-  draft PR first.
-- **Reveals itself mid-run** → the same STOP applies the moment it does; hand back to the human.
+What still stops a run is unrelated to task type — it's the cases where continuing would mean
+**guessing** or **shipping something broken**:
+- an architecture fork with no clear winner, or a 3rd-party API shape you can't confirm from docs;
+- any `/autoship` hard gate (review pass bar, CI, canary, blocking QA regression).
+
+When the run touches a sensitive area (data migration, auth, payments, destructive/irreversible
+change), say so in the final report — what changed there and how to roll it back — so it gets a human
+look after the fact.
 
 ## Arguments
 - Spec/plan file or feature description (same as `/autodev`; if omitted, use this session's brainstorm output).
@@ -67,22 +67,25 @@ confirmation. A binary route, not an "are you sure":
    spec/description argument **plus `--preloaded`** (config already loaded above).
    **One override — its Step 5 does not stop:** do everything Step 5 says (commit, push, draft PR
    with the populated template, print the handoff block for the record), then **continue straight to
-   step 2 below** instead of waiting for the user. Everything else in `/autodev` applies unchanged —
-   the autonomy contract (STOP on high-stakes forks, destructive scope, unconfirmable 3rd-party API
-   shapes), repo rules (`.rules.docs`), testing strategy, mandatory local browser QA for UI features.
+   step 2 below** instead of waiting for the user. Everything else in `/autodev` applies — the autonomy contract
+   **minus its destructive/irreversible-scope STOP** (see Scope: `/autopilot` takes any task; STOP only
+   on high-stakes architecture forks and unconfirmable 3rd-party API shapes), repo rules
+   (`.rules.docs`), testing strategy, mandatory local browser QA for UI features.
    **Pass `--e2e` through** if the user did — autodev's Step 4.5 then runs the local fix-loop e2e
    (recorded when video is enabled).
 2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, the deploy URL and **`--qa`**
-   (omit `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it. **No overrides** — every hard gate
-   applies: auto-reviewer at `.review.passBar` + zero unresolved threads, full CI green,
+   (omit `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it.
+   **No overrides** — every hard gate applies: auto-reviewer at `.review.passBar` + zero unresolved threads, full CI green,
    template-complete PR body, clean canary, QA without blocking regressions, and only then the ticket
    → `.tracker.shipStatus`.
 3. **Combined final report** — one message: a one-line top summary (what shipped, where to click on
-   the deployed env), then autodev's handoff block, autoship's report block, and the QA verdict.
+   the deployed env), then autodev's handoff block, autoship's report block, the QA verdict, and —
+   if any — **Sensitive areas touched** (what changed, how to roll it back).
 
 ## Safety
-- This removes the *verification* gate **and the launch-confirmation prompt** — not the *judgment*
-  gates: every STOP condition in `/autodev` and every hard gate in `/autoship` still stops the run.
+- This removes the *verification* gate, the launch-confirmation prompt **and any task-type/risk
+  filter** — not the *quality* gates: every hard gate in `/autoship` and the "don't guess" STOPs in
+  `/autodev` still stop the run.
 - Nothing merges that isn't at `.review.passBar` + fully green CI.
 - A canary problem, a blocking QA regression, or (with `--e2e`) a failing deployed e2e scenario leaves
   the ticket untouched and surfaces a revert / fix-forward choice — never auto-revert silently.
