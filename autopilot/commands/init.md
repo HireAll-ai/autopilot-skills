@@ -38,16 +38,16 @@ git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.cl
 
 ## Step 2 — project config
 
-Same loader as the other commands:
+Same loader as the other commands, minus the init-marker check (this command writes the marker):
 
 ```bash
-CFG="${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh"
-"$CFG" ensure >/tmp/autopilot.cfg.json 2>/tmp/autopilot.cfg.err; rc=$?
+"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" ensure; echo "rc=$?"     # add --reconfigure with --force
 ```
 
-- **rc=3** → run the first-run detect-and-confirm interview (see `/autodev`
-  Step 0.0), write `.claude/autopilot.config.json`, `git add` + `"$CFG" validate`.
-- **rc=2 / other** → loader hard error: surface `/tmp/autopilot.cfg.err`, **STOP**.
+- **rc=0** → config present (stdout). Keep it in context for the steps below.
+- **rc=3** → stdout is an autodetected draft: Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md`
+  and run that interview.
+- **rc=2 / other** → loader hard error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
 ## Step 3 — factory scaffold (skip with `--skip-factory`)
 
@@ -87,6 +87,7 @@ docs-update stage edits docs, it does not create a doc culture from zero).
 ## Step 6 — write the marker + commit
 
 ```bash
+cd "$(git rev-parse --show-toplevel)"
 cat > .claude/autopilot.init.json <<EOF
 {
   "version": 1,

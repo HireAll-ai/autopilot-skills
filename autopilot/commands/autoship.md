@@ -1,7 +1,7 @@
 ---
 description: Ship + land in one — flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[deploy-url] [--qa] [--e2e] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
 ---
 
 # /autoship — ship → clean → merge → deploy → ship-status (autonomous)
@@ -27,30 +27,35 @@ Arguments (optional, any order):
   so **report-only** — a failure caused by this ship surfaces a revert / fix-forward choice and
   **blocks the ticket move**; fixes are follow-up PRs, never local edits. Independent of `--qa`.
 - `--reconfigure` — re-run the config interview (Step 0.0).
+- `--preloaded` — internal, passed by `/autopilot`: Step 0.0 already ran and the config is in context.
 
-## Init check (runs before Step 0.0)
+## Step 0.0 — Init check + load project config (ALWAYS FIRST, one call)
 
-```bash
-test -f .claude/autopilot.init.json || echo "NOT_INITIALIZED"
-```
-- `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack, config,
-  factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
-
-## Step 0.0 — Load project config (ALWAYS FIRST)
+Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the config is in context).
 
 ```bash
-CFG="${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh"
-cfg() { "$CFG" get "$1" "${2-}"; }
-"$CFG" ensure >/tmp/autopilot.cfg.json 2>/tmp/autopilot.cfg.err; rc=$?
+"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" load; echo "rc=$?"     # add --reconfigure if passed
 ```
-- **rc=0** → loaded. **rc=3 (or `--reconfigure`)** → run the first-run interview (see `/autodev`
-  Step 0.0), write `.claude/autopilot.config.json`, `git add` + `"$CFG" validate`. `/autoship`
-  needs the tracker/review/deploy sections populated to run at all.
-- **rc=2 (or any other code)** → loader hard error (jq missing, unreadable config, bad subcommand):
-  read `/tmp/autopilot.cfg.err`, surface it (commonly: install `jq`), and **STOP**.
+- **rc=0** → stdout **is** the config — read once, keep it in context.
+- **rc=4** → `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack,
+  config, factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
+- **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md` and
+  run it. `/autoship` needs the tracker/review/deploy sections populated to run at all.
+- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
-Placeholders below resolve from config: `<base>` = `.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN`
-key, `<checks>` = `.git.protection.requiredChecks`, `<mergeStrategy>` = `.git.mergeStrategy`, etc.
+**Shell state does not persist between Bash calls** — substitute config values literally into each
+command rather than relying on variables from an earlier call (`<merge-sha>` included: once captured
+in Step 4, write it into later commands verbatim).
+
+Placeholders resolve from config: `<base>` = `.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key,
+`<checks>` = `.git.protection.requiredChecks`, `<mergeStrategy>` = `.git.mergeStrategy`, etc.
+**`<typecheck>`** = `"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"` — passes trivially when
+`.commands.typecheck` is empty and is a **no-op on a working tree that already passed** (cached by
+tree hash), so every gate below that re-asserts it costs nothing unless the code changed.
+
+**Long waits go in the background.** CI watches, merge-queue waits and deploy verification routinely
+outlive the Bash tool's 10-minute foreground cap: run them with `run_in_background: true` — you are
+re-invoked when they exit — and never `sleep`-poll in the foreground.
 
 ## Required skills (verify installed before running)
 Check each **once**, up front — a skill that doesn't resolve has a defined fallback, so never stall
@@ -95,10 +100,9 @@ If any fails and can't be auto-fixed in the loop, **STOP and report** — do not
 ## Step 0 — Preflight
 
 ```bash
-gh auth status >/dev/null 2>&1 || { echo "gh not authenticated"; exit 1; }
-BASE=$(cfg '.git.baseBranch')
+gh auth status >/dev/null 2>&1 || echo "gh not authenticated"
 git rev-parse --abbrev-ref HEAD
-git log --oneline "origin/$BASE..HEAD" | head        # confirm there are commits to ship
+git log --oneline "origin/<base>..HEAD" | head        # confirm there are commits to ship
 gh pr view --json number,isDraft,url 2>/dev/null || true   # /autodev usually left a draft PR
 ```
 If `.tracker.keyRequired` and the branch has no `<KEY>`, **STOP** and ask for the ticket. Capture the key — Step 6 transitions it.
@@ -113,11 +117,12 @@ every run (an unconditional rebase throws away `/autodev`'s pre-warmed CI). Do t
    (type-check must pass before *any* commit), then commit it (`<KEY>:`). A dirty tree also blocks the rebase.
 2. Rebase only if behind, then publish:
 ```bash
-git fetch origin "$BASE"
-git merge-base --is-ancestor "origin/$BASE" HEAD && echo "already current — no rebase" || {
-  git rebase "origin/$BASE" && eval "$(cfg '.commands.typecheck')"
+git fetch origin "<base>"
+git merge-base --is-ancestor "origin/<base>" HEAD && echo "already current — no rebase" || {
+  git rebase "origin/<base>" && "${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"
 }
-git push --force-with-lease   # no-op if nothing changed (keeps pre-warmed CI); else publishes
+git push --force-with-lease -u origin HEAD   # no-op if nothing changed (keeps pre-warmed CI); -u: the
+                                             # branch may never have been pushed (no /autodev run)
 ```
 The pre-warm survives **only** when step 1 found nothing to commit and no rebase happened (then
 `git push` is a true no-op). Otherwise CI/review correctly re-run on the new HEAD — intended, not
@@ -132,7 +137,7 @@ must be green):
    (every required section, None/N/A allowed) and still describes the final diff — if not, rebuild
    into a temp file (`tmp=$(mktemp)`), `gh pr edit <PR> --body-file "$tmp"`, `rm "$tmp"`. Then flip:
    `gh pr ready <PR>`.
-3. **No PR yet?** Populate the template into a temp file, `gh pr create --base "$BASE" --title
+3. **No PR yet?** Populate the template into a temp file, `gh pr create --base "<base>" --title
    "<KEY>: <summary>" --body-file "$tmp"`, `rm "$tmp"`.
 
 Capture the PR number (`gh pr view --json number,url`).
@@ -150,13 +155,14 @@ Skip Step 2.1 entirely when `.review.gate == none`. Otherwise repeat until the h
      `gh pr view <PR> --json reviewDecision,comments` and
      `gh api "repos/{owner}/{repo}/pulls/<PR>/comments" --jq '.[] | {id,path,line,body}'`; fix what is
      actionable, reply on the thread with the fixing commit (or argue it down), push, wait for the
-     re-review. Resolve threads with the GraphQL `resolveReviewThread` mutation — unresolved threads
+     re-review (poll it in the background, not with a foreground `sleep`). Resolve threads with the GraphQL `resolveReviewThread` mutation — unresolved threads
      block the merge when `.git.protection.requireThreadResolution`.
 2. **One CI confirmation per push.** Every push re-triggers the required checks `<checks>`. After the
-   loop's latest push, watch the rollup **once**:
+   loop's latest push, watch the rollup **once** — **in the background** (`run_in_background: true`;
+   CI often runs past the 10-minute foreground cap), then read the result in the foreground:
    ```bash
-   gh pr checks <PR> --watch --interval 20
-   gh pr checks <PR> --json name,state,bucket
+   gh pr checks <PR> --watch --interval 30         # background; you're re-invoked when it exits
+   gh pr checks <PR> --json name,state,bucket      # foreground, after
    ```
    - A required check **fails** → `gh run view --log-failed`, then classify:
      - **Infra flake** (broken pipe / transient SSH / runner death — nothing in the code):
@@ -185,8 +191,8 @@ If `.git.protection.strict` is false, a plain **`BEHIND`** branch still merges �
 - Otherwise (incl. a plain `BEHIND`) → a quick **semantic-overlap check** — a non-textual conflict
   (a moved API / schema / shared-package dependency) can break the merged tree even with green checks:
   ```bash
-  git fetch origin "$BASE" -q
-  git diff --name-only "HEAD...origin/$BASE"   # what moved on base since this branch's base
+  git fetch origin "<base>" -q
+  git diff --name-only "HEAD...origin/<base>"   # what moved on base since this branch's base
   ```
   If that delta touches **shared/contract surface this diff depends on** (`packages/*`, DB
   migrations/entities, an API contract, `package.json`/lockfile) → **rebase + re-run Step 2**, then
@@ -194,30 +200,38 @@ If `.git.protection.strict` is false, a plain **`BEHIND`** branch still merges �
 
 ## Step 4 — Merge (autonomous, repo-aware)
 
-Re-confirm the hard gate, then merge with the configured strategy:
+Re-confirm the hard gate, then merge with the configured strategy (`--delete-branch` only when
+`.git.deleteBranchOnMerge` is true):
 ```bash
-STRAT=$(cfg '.git.mergeStrategy'); DEL=""; [ "$(cfg '.git.deleteBranchOnMerge')" = "true" ] && DEL="--delete-branch"
-gh pr merge <PR> --"$STRAT" $DEL
+gh pr merge <PR> --<mergeStrategy> [--delete-branch]
 ```
-If branch protection rejects it **despite green CI**, gate the bypass behind an explicit assertion —
-re-query every check and refuse `--admin` unless all are terminally green, **and only if
-`.git.protection.adminBypassAllowed` is true**:
+**Merge queue** — when `.git.mergeQueue` is true, or the direct merge is rejected because the base
+requires a merge queue: enqueue instead, `gh pr merge <PR> --auto [--delete-branch]` (the queue
+applies its own strategy), then wait for it **in the background**:
 ```bash
-if [ "$(cfg '.git.protection.adminBypassAllowed')" = "true" ]; then
-  NOT_GREEN=$(gh pr checks <PR> --json name,state,bucket \
-    | jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length')
-  if [ "$NOT_GREEN" = "0" ]; then
-    gh pr merge <PR> --"$STRAT" $DEL --admin
-  else echo "ABORT: $NOT_GREEN check(s) not green — refusing --admin"; exit 1; fi
-else echo "ABORT: adminBypassAllowed=false — cannot bypass protection"; exit 1; fi
+for i in $(seq 1 90); do   # ≤45 min
+  S=$(gh pr view <PR> --json state,autoMergeRequest --jq '"\(.state) \(.autoMergeRequest != null)"')
+  case "$S" in MERGED*) echo merged; exit 0;; "OPEN false") echo "dropped from the queue"; exit 1;; esac
+  sleep 30
+done; echo "still queued after 45 min"; exit 1
+```
+Dropped from the queue → read why (`gh pr checks <PR>`, the queue's run), treat it like a red check in
+Step 2. Never `--admin` around a queue.
+
+If branch protection rejects a direct merge **despite green CI**, gate the bypass behind an explicit
+assertion — **only if `.git.protection.adminBypassAllowed` is true** (otherwise STOP and report:
+cannot bypass protection) — re-query every check and refuse `--admin` unless all are terminally green:
+```bash
+NOT_GREEN=$(gh pr checks <PR> --json name,state,bucket \
+  | jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length')
+if [ "$NOT_GREEN" = "0" ]; then gh pr merge <PR> --<mergeStrategy> [--delete-branch] --admin
+else echo "ABORT: $NOT_GREEN check(s) not green — refusing --admin"; fi
 ```
 A worktree-cleanup error from `--delete-branch` is harmless.
 
-**Capture the merge SHA** — Step 5 needs it to watch the right base run:
+**Capture the merge SHA** — Step 5 needs it (write it into later commands verbatim as `<merge-sha>`):
 ```bash
-MERGE_SHA=$(gh pr view <PR> --json mergeCommit --jq '.mergeCommit.oid')
-[ -n "$MERGE_SHA" ] || { echo "ABORT: no merge commit SHA — did the merge land?"; exit 1; }
-echo "merged as $MERGE_SHA"
+gh pr view <PR> --json mergeCommit --jq '.mergeCommit.oid // "ABORT: no merge commit SHA — did the merge land?"'
 ```
 
 ## Step 5 — Verify the deploy (light canary)
@@ -233,42 +247,28 @@ the mode from `.deploy.verify.mode`; when absent, infer `github-run` if `.deploy
 
 ### 5.1 — Confirm the merge is live
 
-**mode `build-id`** — poll the build-id endpoint until it reports `$MERGE_SHA`:
+One script covers every mode. It polls for up to `.deploy.verify.timeoutSeconds` (default 600) and
+may then watch runs — **run it in the background** (`run_in_background: true`); you're re-invoked
+when it exits:
 ```bash
-VURL=$(cfg '.deploy.verify.buildIdUrl'); VJQ=$(cfg '.deploy.verify.buildIdJq' '.commit')
-DEADLINE=$(( $(date +%s) + $(cfg '.deploy.verify.timeoutSeconds' '600') )); LIVE=""
-while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-  LIVE=$(curl -fsS --max-time 10 "$VURL" | jq -r "$VJQ // empty" 2>/dev/null || true)
-  [ "$LIVE" = "$MERGE_SHA" ] && break
-  sleep 15
-done
+"${CLAUDE_PLUGIN_ROOT}/lib/verify-deploy.sh" <merge-sha>
 ```
-- `LIVE == $MERGE_SHA` → **deployed, verified.** Continue to the canary.
-- Endpoint reachable but the commit reads `unknown`/empty (the build arg never arrived — it is **not**
-  a failed deploy): if `.deploy.verify.restartedAtJq` is set, accept a restart **after** the merge
-  time as deployed and say the evidence was the restart, not the commit. Otherwise → **unverified**
-  (below).
-- Endpoint **unreachable for the whole window** → the env is down at the API level → **hard STOP**:
-  skip 5.5 / 5.6 / 6, surface it, offer the **revert recipe**.
-- Still the old commit at the deadline → **unverified** (below). The builder may just be slow.
 
-**mode `github-run`** — the deploy *is* a GitHub Actions run, so watch the push run for `$MERGE_SHA`
-(not "the latest run", not a same-SHA manual run):
-```bash
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner); RUN_ID=""
-for i in $(seq 1 30); do   # ~10 min: the push run can queue behind earlier deploys
-  RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$MERGE_SHA&event=push&branch=$BASE&per_page=20" \
-    --jq '[.workflow_runs[]][0].id // empty')
-  [ -n "$RUN_ID" ] && break; sleep 20
-done
-```
-Run found → `gh run watch "$RUN_ID" --exit-status`: non-zero → env **broken** for this merge → **hard
-STOP** (skip 5.5 / 5.6 / 6, offer the revert recipe); exit 0 → **deployed, verified**. Run never
-found → **unverified** (below).
+| exit | meaning | do |
+|---|---|---|
+| **0** | `VERIFIED` — `build-id`: the endpoint reports `<merge-sha>`; `github-run`: the deploy run(s) for `<merge-sha>` went green | continue to the canary |
+| **1** | `BROKEN` — a deploy run failed, or the build-id endpoint was unreachable the whole window | **hard STOP**: skip 5.5 / 5.6 / 6, surface it, offer the **revert recipe** |
+| **10** | `UNVERIFIED` — old build still answering at the deadline, no push run observed, or mode `none` | **unverified** (below) |
+| **12** | `COMMIT_UNKNOWN` — the endpoint answers but its commit reads `unknown`/empty (the build arg never arrived — **not** a failed deploy) | if it printed a `restartedAt` **after** the merge time, count it as deployed and say the evidence was the restart, not the commit; else **unverified** |
+| **2** | config/usage error (e.g. `build-id` without `buildIdUrl`) | fix the config, re-run |
 
-**mode `none`** — nothing can confirm the build. Go straight to the canary and report the deploy as
-**unverified**; never print "deploy verified". *(Worth fixing: a two-line `/version` route returning
-the commit baked in at build time turns this into `build-id`.)*
+`github-run` only counts runs triggered by the **push** of `<merge-sha>` to `<base>` (never "the
+latest run" or a same-SHA manual run), filtered to `.deploy.verify.workflow` when set. Without it,
+**every** push run for that SHA (CI, lint, deploy) must go green — set `workflow` so an unrelated
+red lint job can't masquerade as a broken deploy.
+
+**mode `none`** never prints "deploy verified". *(Worth fixing: a two-line `/version` route returning
+the commit baked in at build time turns it into `build-id`.)*
 
 **Unverified** (any mode) is **not a failure** — the ship **landed**, only its automated confirmation
 is pending. Do **NOT** revert. Still run the canary, and say plainly in Step 6 that the deploy is
@@ -276,10 +276,10 @@ unverified and the operator should re-check. It does not by itself block Step 6.
 
 **Revert recipe** — Step 4 may have deleted the branch; branch fresh from the base:
 ```bash
-git fetch origin "$BASE"
-git switch -c "revert-<KEY>-deploy" "origin/$BASE"
-git revert --no-edit "$MERGE_SHA"
-git push -u origin HEAD   # then open a PR --base "$BASE" with the populated template
+git fetch origin "<base>"
+git switch -c "revert-<KEY>-deploy" "origin/<base>"
+git revert --no-edit <merge-sha>
+git push -u origin HEAD   # then open a PR --base "<base>" with the populated template
 ```
 
 ### 5.2 — Light canary
@@ -299,32 +299,19 @@ Keep it **light**. A broken page / failed assertion / console-error wall = a rea
 ## Step 5.5 — Optional automated QA (`--qa`)
 
 Only with `--qa` (else skip silently). Code is merged — **report-only** (`.qa.qaOnlySkill`); fixes are follow-up PRs:
-- Invoke **`.qa.qaOnlySkill`** against the deploy URL, quick tier (critical/high), scoped to the
-  flows this PR touched.
+- Run **`.qa.qaOnlySkill`** against the deploy URL in a **subagent** (`Agent`; keeps its long body and
+  transcript out of this context), quick tier (critical/high), scoped to the flows this PR touched;
+  it returns findings only.
 - **critical/high regression caused by this ship** → **blocks Step 6**; report + offer revert or
   fix-forward. medium/low or pre-existing → include, don't block.
 
 ## Step 5.6 — Optional scenario browser e2e (`--e2e`)
 
-Only with `--e2e` (else skip silently). Merged + deployed, so **report-only** — fixes are follow-up PRs:
-- **Derive scenarios** — 2–4 key user flows from the diff + `<KEY>` + PR body.
-- **Run** each against the **deploy URL**:
-  - `.qa.video.enabled` → use the recorder for video evidence (pass `--gif` when the surface needs a PR gif):
-    ```bash
-    GIF=""; case "$(cfg '.qa.video.surface' 'context')" in both|pr-gif) GIF="--gif";; esac
-    node ${CLAUDE_PLUGIN_ROOT}/lib/record-e2e.mjs <scenario>.json \
-      --out-dir "$(cfg '.qa.video.dir' '.context/video')" --format "$(cfg '.qa.video.format' 'mp4')" $GIF \
-      --base-url "<deploy url>" --max-seconds "$(cfg '.qa.video.maxSeconds' '90')"
-    ```
-    exit **2** (Playwright unavailable) → fall back to `.qa.browseSkill` without video; exit **3**
-    (scenario/usage error) → fix the scenario JSON and re-run (don't fall back, don't mark green).
-    For non-UI flows, assert the end effect (API response / DB-visible result).
-  - else → drive with **`.qa.browseSkill`** step-by-step.
-- **Findings:** a scenario failing **because of this ship** → **blocks Step 6**; report the failing
-  step + screenshot/video + offer revert or fix-forward. Pre-existing breakage → include, don't block.
-- Surface video per `.qa.video.surface`: mp4/webm under `.context/` (gitignored) for the chat; for a
-  PR/PR-comment gif, GitHub can't embed API-uploaded video, so copy the gif to a **committed** path
-  (e.g. `docs/qa-media/<KEY>/<name>.gif`) and reference its raw URL. Write the run into the final report.
+Only with `--e2e` (else skip silently). Otherwise **Read `${CLAUDE_PLUGIN_ROOT}/lib/e2e.md`** and
+follow its **deployed** mode against the deploy URL: 2–4 scenarios from the diff + `<KEY>` + PR body,
+recorded when `.qa.video.enabled`, **report-only** (merged code — fixes are follow-up PRs). A scenario
+failing **because of this ship** → **blocks Step 6** + offer revert or fix-forward; pre-existing
+breakage → include, don't block. Write the run into the final report.
 
 ## Step 6 — Report + move the ticket to the ship status
 

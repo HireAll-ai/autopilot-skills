@@ -1,7 +1,7 @@
 ---
 description: Full autonomous cycle, no verification stop — /autodev (plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). For low/medium-risk features; risky work goes /autodev → manual verify → /autoship. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [deploy-url] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
 ---
 
 # /autopilot — feature → merged → deployed, in one run
@@ -23,25 +23,18 @@ check left that exercises the deployed build; the CI / auto-reviewer / canary ha
 Pipeline: brainstorm/spec → **`/autopilot`** = autodev Steps 0–5 (draft PR, **no stop**) → autoship
 Steps 0–6 (ready → review loop → checks → merge → canary → QA → ticket ship-status) → one combined report.
 
-## Init check (runs before Step 0.0)
+## Step 0.0 — Init check + load project config (once for the whole run)
 
 ```bash
-test -f .claude/autopilot.init.json || echo "NOT_INITIALIZED"
+"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" load; echo "rc=$?"     # add --reconfigure if passed
 ```
-- `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack, config,
-  factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
-
-## Step 0.0 — Load project config (ALWAYS FIRST)
-
-```bash
-CFG="${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh"
-cfg() { "$CFG" get "$1" "${2-}"; }
-"$CFG" ensure >/tmp/autopilot.cfg.json 2>/tmp/autopilot.cfg.err; rc=$?
-```
-- **rc=0** → loaded. **rc=3 (or `--reconfigure`)** → run the first-run interview (see `/autodev` Step
-  0.0), write `.claude/autopilot.config.json`, `git add` + `"$CFG" validate`, then continue.
-- **rc=2 (or any other code)** → loader hard error (jq missing, unreadable config): read
-  `/tmp/autopilot.cfg.err`, surface it, and **STOP**.
+- **rc=0** → stdout **is** the config — keep it in context. This is the **only** load in the run:
+  both phases below get `--preloaded` and skip their own Step 0.0.
+- **rc=4** → `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack,
+  config, factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
+- **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md`,
+  run it, then continue.
+- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
 ## Scope (classify once at launch, then go)
 
@@ -70,7 +63,8 @@ confirmation. A binary route, not an "are you sure":
 
 ## How to run
 
-1. **Invoke the `autodev` skill** (Skill tool) with the spec/description argument.
+1. **Invoke the `autopilot:autodev` skill** (Skill tool — the plugin-namespaced name) with the
+   spec/description argument **plus `--preloaded`** (config already loaded above).
    **One override — its Step 5 does not stop:** do everything Step 5 says (commit, push, draft PR
    with the populated template, print the handoff block for the record), then **continue straight to
    step 2 below** instead of waiting for the user. Everything else in `/autodev` applies unchanged —
@@ -78,8 +72,8 @@ confirmation. A binary route, not an "are you sure":
    shapes), repo rules (`.rules.docs`), testing strategy, mandatory local browser QA for UI features.
    **Pass `--e2e` through** if the user did — autodev's Step 4.5 then runs the local fix-loop e2e
    (recorded when video is enabled).
-2. **Invoke the `autoship` skill** with the deploy URL and **`--qa`** (omit `--qa` only if the user
-   passed `--no-qa`), plus **`--e2e`** if the user passed it. **No overrides** — every hard gate
+2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, the deploy URL and **`--qa`**
+   (omit `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it. **No overrides** — every hard gate
    applies: auto-reviewer at `.review.passBar` + zero unresolved threads, full CI green,
    template-complete PR body, clean canary, QA without blocking regressions, and only then the ticket
    → `.tracker.shipStatus`.

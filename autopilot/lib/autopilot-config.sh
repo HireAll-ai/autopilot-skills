@@ -12,10 +12,14 @@
 #   autopilot-config.sh get <jqfilter> [def] # print a value (raw); [def] if null/missing
 #   autopilot-config.sh detect               # print an autodetected DRAFT config to stdout
 #   autopilot-config.sh validate [file]      # validate a config against the schema
-#   autopilot-config.sh ensure               # exists → dump; missing → detect + exit 3
+#   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure) → detect + exit 3
+#   autopilot-config.sh load [--reconfigure]    # init marker check (exit 4 if missing), then ensure
 #
-# `ensure` is the Step-0 entry point: exit 0 means "loaded" (config dumped to stdout);
-# exit 3 means "no config — a detected draft is on stdout; run the interview and write it".
+# `load` is the Step-0 entry point of /autodev, /autoship, /autopilot: one call, everything on stdout
+# so the agent reads the config ONCE into context. exit 0 = loaded (config on stdout); exit 3 = no
+# config (or --reconfigure) — a detected draft is on stdout, run the interview and write it;
+# exit 4 = repo not initialized (run /autopilot:init); exit 2 = hard error (stderr).
+# `ensure` is the same minus the marker check (used by /autopilot:init itself).
 set -euo pipefail
 
 _die() { echo "autopilot-config: $*" >&2; exit 2; }
@@ -25,6 +29,7 @@ command -v jq >/dev/null 2>&1 || _die "jq is required but not installed"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CONFIG_PATH="${AUTOPILOT_CONFIG:-$REPO_ROOT/.claude/autopilot.config.json}"
+INIT_MARKER="$REPO_ROOT/.claude/autopilot.init.json"
 SCHEMA_PATH="$SCRIPT_DIR/../schema/autopilot.config.schema.json"
 
 # --- helpers ---------------------------------------------------------------------------
@@ -121,6 +126,11 @@ _detect_key_prefix() {
     | sort | uniq -c | sort -rn | head -1 | awk '{print $2}'
 }
 
+# detect a deploy workflow file under .github/workflows (best effort; first *deploy* file).
+_detect_deploy_workflow() {
+  ls "$REPO_ROOT"/.github/workflows/*deploy*.y*ml 2>/dev/null | head -1 | xargs -n1 basename 2>/dev/null || true
+}
+
 # detect a health/deploy URL from repo docs + CI (best effort).
 _detect_health_url() {
   { grep -rhoE 'https?://[^ )"'"'"']+/(api/)?health' \
@@ -129,16 +139,18 @@ _detect_health_url() {
 }
 
 _cmd_detect() {
-  local commands git_block key_prefix health
+  local commands git_block key_prefix health workflow
   commands="$(_detect_commands)"
   git_block="$(_detect_git)"
   key_prefix="$(_detect_key_prefix || true)"
   health="$(_detect_health_url || true)"
+  workflow="$(_detect_deploy_workflow)"
   jq -n \
     --argjson commands "$commands" \
     --argjson git "$git_block" \
     --arg keyPrefix "${key_prefix:-}" \
-    --arg health "${health:-}" '
+    --arg health "${health:-}" \
+    --arg workflow "${workflow:-}" '
     {
       version: 1,
       tracker: {
@@ -153,7 +165,10 @@ _cmd_detect() {
       commands: (if ($commands|length)>0 then $commands else
         { install:"", typecheck:"", test:"", testFilter:"", build:"", dev:"", lint:null } end),
       review: { gate: "none", localReviewers: [] },
-      deploy: (if $health != "" then
+      deploy: (if $workflow != "" then
+        { trigger:"github-action", autoDeploys:true, healthcheck:$health, urls:{}, docsRef:"",
+          verify:{ mode:"github-run", workflow:$workflow } }
+        elif $health != "" then
         { trigger:"merge-to-base", autoDeploys:true, healthcheck:$health, urls:{}, docsRef:"" }
         else { trigger:"none" } end),
       qa: {
@@ -165,7 +180,7 @@ _cmd_detect() {
         planDir: "docs/plans",
         prTemplate: ".github/pull_request_template.md"
       },
-      _note: "AUTODETECTED DRAFT — confirm/fill tracker (type,mcp,shipStatus), review.gate, and deploy.urls with the developer, then write to .claude/autopilot.config.json and git add it."
+      _note: "AUTODETECTED DRAFT — confirm/fill tracker (type,mcp,shipStatus), review.gate, deploy.urls and deploy.verify with the developer, then write to .claude/autopilot.config.json and git add it."
     }'
 }
 
@@ -190,10 +205,22 @@ _cmd_validate() {
 }
 
 _cmd_ensure() {
+  if [ "${1-}" = "--reconfigure" ]; then
+    _cmd_exists && echo "autopilot-config: --reconfigure — current config kept at $CONFIG_PATH (start the interview from its values); detected draft follows on stdout" >&2
+    _cmd_detect; exit 3
+  fi
   if _cmd_exists; then _cmd_dump; exit 0; fi
   echo "autopilot-config: no config at $CONFIG_PATH — detected draft follows on stdout" >&2
   _cmd_detect
   exit 3
+}
+
+_cmd_load() {
+  if [ ! -f "$INIT_MARKER" ]; then
+    echo "NOT_INITIALIZED: no $INIT_MARKER — run /autopilot:init first" >&2
+    exit 4
+  fi
+  _cmd_ensure "$@"
 }
 
 # --- dispatch --------------------------------------------------------------------------
@@ -205,6 +232,7 @@ case "$cmd" in
   get)      _cmd_get "$@" ;;
   detect)   _cmd_detect ;;
   validate) _cmd_validate "$@" ;;
-  ensure)   _cmd_ensure ;;
-  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|validate [file]|ensure}" >&2; exit 2 ;;
+  ensure)   _cmd_ensure "$@" ;;
+  load)     _cmd_load "$@" ;;
+  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|validate [file]|ensure [--reconfigure]|load [--reconfigure]}" >&2; exit 2 ;;
 esac

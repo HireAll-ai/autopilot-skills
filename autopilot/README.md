@@ -36,6 +36,11 @@ package-manager commands (lockfile + `package.json` scripts), base branch + prot
 You confirm the rest: tracker type + MCP + ship status, review gate, deploy URLs, whether to enable
 video. Re-run any time with `--reconfigure`.
 
+The commands load it with **one** call at Step 0.0 — `autopilot-config.sh load` checks the init marker
+(exit 4 if missing) and prints the config (exit 0) or an autodetected draft (exit 3) to stdout, so the
+agent reads the config once into context instead of re-querying it per value. The interview itself
+lives in [`lib/config-interview.md`](lib/config-interview.md) and is only read when needed.
+
 Preview / inspect via the loader (resolve the plugin dir with `claude plugin root autopilot`):
 
 ```bash
@@ -64,9 +69,27 @@ A consuming repo's config commonly starts with:
 }
 ```
 
+## Runtime helpers
+
+| script | used by | what it saves |
+|---|---|---|
+| `lib/typecheck.sh` | every `<typecheck>` gate in `/autodev` + `/autoship` | runs `.commands.typecheck` at most once per working tree (cache keyed by tree hash under the per-worktree git dir), so re-asserting the gate after a no-op rebase/push is free |
+| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown |
+
+Long waits (CI watch, merge queue, deploy verify) are run with `run_in_background` — the Bash tool caps
+foreground calls at 10 minutes. `/autodev`'s local reviewers and QA run as **parallel report-only
+subagents**; the main agent applies the fixes. `/autopilot` loads the config once and passes
+`--preloaded` to both phases.
+
+**Tracker MCP permissions.** `allowed-tools` can't follow the configured tracker, so only the Jira
+server tools are pre-approved. For another tracker (e.g. Linear), add its MCP server to the consuming
+repo's `.claude/settings.json` → `permissions.allow` (e.g. `"mcp__linear"`) so `/autoship` Step 6
+doesn't stop on a permission prompt.
+
 ## Video recording (opt-in)
 
-When `qa.video.enabled` is true, the `--e2e` scenario walk is recorded via `lib/record-e2e.mjs`
+The `--e2e` procedure (scenarios, recorder exit codes, fix-loop vs report-only, video surfacing) lives in
+[`lib/e2e.md`](lib/e2e.md) and is only read when `--e2e` is passed. When `qa.video.enabled` is true, the `--e2e` scenario walk is recorded via `lib/record-e2e.mjs`
 (standalone Playwright — independent of any project browser tooling):
 
 ```bash
