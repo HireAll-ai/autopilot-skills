@@ -126,6 +126,16 @@ _detect_key_prefix() {
     | sort | uniq -c | sort -rn | head -1 | awk '{print $2}'
 }
 
+# detect the commit style from recent subjects: conventional when at least half of them parse as
+# Conventional Commits, else key-prefix (the default — it is what the commands did before the knob).
+_detect_commit_style() {
+  local total conv
+  total="$(git -C "$REPO_ROOT" log --no-merges -50 --format='%s' 2>/dev/null | wc -l | tr -d ' ')"
+  conv="$(git -C "$REPO_ROOT" log --no-merges -50 --format='%s' 2>/dev/null \
+    | grep -cE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]*\))?!?: ' || true)"
+  if [ "${total:-0}" -gt 0 ] && [ $(( conv * 2 )) -ge "$total" ]; then echo conventional; else echo key-prefix; fi
+}
+
 # detect a deploy workflow file under .github/workflows (best effort; first *deploy* file).
 _detect_deploy_workflow() {
   ls "$REPO_ROOT"/.github/workflows/*deploy*.y*ml 2>/dev/null | head -1 | xargs -n1 basename 2>/dev/null || true
@@ -141,7 +151,7 @@ _detect_health_url() {
 _cmd_detect() {
   local commands git_block key_prefix health workflow
   commands="$(_detect_commands)"
-  git_block="$(_detect_git)"
+  git_block="$(_detect_git | jq --arg cs "$(_detect_commit_style)" '.commitStyle = $cs')"
   key_prefix="$(_detect_key_prefix || true)"
   health="$(_detect_health_url || true)"
   workflow="$(_detect_deploy_workflow)"
@@ -158,6 +168,7 @@ _cmd_detect() {
         mcp: "",
         keyPrefix: $keyPrefix,
         keyRequired: ($keyPrefix != ""),
+        autoCreateIssue: false,
         shipStatus: "",
         shipStatusVia: []
       },

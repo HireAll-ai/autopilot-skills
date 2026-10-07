@@ -32,9 +32,9 @@ Idempotent; flags: `--force`, `--skip-design`, `--skip-docs`, `--skip-factory`.
 On the first `/autodev` (or `/autopilot`) in a repo with no config, Step 0.0 autodetects and asks you
 to confirm/fill the gaps, then writes + `git add`s `.claude/autopilot.config.json`. Autodetected:
 package-manager commands (lockfile + `package.json` scripts), base branch + protection
-(`gh api …/branches/<base>/protection`), ticket prefix (commit history), and a health/deploy URL.
-You confirm the rest: tracker type + MCP + ship status, review gate, deploy URLs, whether to enable
-video. Re-run any time with `--reconfigure`.
+(`gh api …/branches/<base>/protection`), ticket prefix and commit style (commit history), and a
+health/deploy URL. You confirm the rest: tracker type + MCP + ship status, review gate, deploy URLs,
+whether to enable video. Re-run any time with `--reconfigure`.
 
 The commands load it with **one** call at Step 0.0 — `autopilot-config.sh load` checks the init marker
 (exit 4 if missing) and prints the config (exit 0) or an autodetected draft (exit 3) to stdout, so the
@@ -53,9 +53,9 @@ PLUGIN="$(claude plugin root autopilot)"     # e.g. ~/.claude/plugins/.../autopi
 ## Config reference
 
 Full contract: [`schema/autopilot.config.schema.json`](schema/autopilot.config.schema.json). Sections:
-`tracker` (issue tracker + ship status), `git` (base branch, merge strategy, protection), `commands`
-(install/typecheck/test/build/dev — empty string = "skip this step"), `review` (auto-reviewer gate +
-pass bar + local reviewers), `deploy` (trigger, healthcheck, env URLs, canary skill), `qa` (browser
+`tracker` (issue tracker + ship status), `git` (base branch, branch pattern, commit style, merge
+strategy, protection), `commands` (install/typecheck/test/build/dev — empty string = "skip this
+step"), `review` (auto-reviewer gate + pass bar + local reviewers), `deploy` (trigger, healthcheck, env URLs, canary skill), `qa` (browser
 skills + `preview` + `video`), `rules` (which repo docs to obey + plan/spec dirs + PR template).
 
 A consuming repo's config commonly starts with:
@@ -67,6 +67,25 @@ A consuming repo's config commonly starts with:
   "tracker": { "type": "jira", "keyPrefix": "PROJ", "keyRequired": true, "shipStatus": "In Review" },
   "...": "see the schema"
 }
+```
+
+## Commit style, branch names, tickets
+
+The repo's conventions, not the plugin's — set once in config, applied to every commit and PR title
+`/autodev`, `/autoship` (and so `/autopilot`) write:
+
+- **`git.commitStyle`** — `key-prefix` (default): `POS-42: add the role filter`. `conventional`:
+  Conventional Commits 1.0, `feat(roles): add the role filter` (imperative, ≤72 chars, no key in the
+  subject); the key moves to a `Ticket: POS-42` line in the PR body and a `Refs: POS-42` commit
+  trailer. The PR title is the squash subject, so it follows the same style.
+- **`git.branchPattern`** — `{key}`, `{key_lower}`, `{slug}`: `{key_lower}-{slug}` →
+  `pos-42-role-filter` (Linear's default). The key is found in a branch name case-insensitively.
+- **`tracker.autoCreateIssue`** — default `false`: when `tracker.keyRequired` and there's no key,
+  `/autodev` **asks** for one. `true` lets it open the issue itself via `tracker.mcp`.
+
+```json
+"tracker": { "type": "linear", "keyPrefix": "POS", "keyRequired": true, "autoCreateIssue": false },
+"git": { "branchPattern": "{key_lower}-{slug}", "commitStyle": "conventional", "...": "…" }
 ```
 
 ## Runtime helpers
