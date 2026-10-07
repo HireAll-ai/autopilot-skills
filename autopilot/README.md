@@ -107,7 +107,7 @@ node "$(claude plugin root autopilot)/lib/record-e2e.mjs" scenario.json \
   (renders in the Conductor chat; gif previews inline); `pr-gif` → a committed gif referenced by raw
   URL in the PR body (GitHub can't embed API-uploaded video); `both`; `none`.
 
-## Verification handoff (`/autodev` Step 4.8)
+## Verification handoff (`/autodev`)
 
 `/autodev` stops for a human to verify, so it hands over something clickable rather than a
 paragraph: a **live preview link** to the running dev server (URL read from the server's own

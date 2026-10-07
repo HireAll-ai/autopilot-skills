@@ -1,9 +1,9 @@
-# Scenario browser e2e (`--e2e`) — shared by /autodev Step 4.5 and /autoship Step 5.6
+# Scenario browser e2e (`--e2e`) — shared by /autodev (Done #4) and /autoship Step 5.6
 
 Read this only when `--e2e` was passed. It walks **these exact user flows** end-to-end — deterministic
 happy-path verification, unlike the heuristic bug-hunt of a QA pass. Two modes:
 
-| | **local** (`/autodev` 4.5) | **deployed** (`/autoship` 5.6) |
+| | **local** (`/autodev`) | **deployed** (`/autoship` 5.6) |
 |---|---|---|
 | target | the already-warm local dev server | the deploy URL |
 | failures | fix-loop: fix the code, re-run | **report-only** — code is merged; fixes are follow-up PRs |
@@ -48,7 +48,7 @@ Non-UI flows: assert the end effect (DB row / API response), not the page.
 
 - **local** — fix-loop (this is the "tested" guarantee): find the cause, fix the code (`<KEY>:`
   commit), `<typecheck>`, re-run that scenario. **Max 3 attempts** per scenario. Still failing → do
-  **NOT** present the feature as green; carry the red e2e into the Step 5 handoff as a blocker.
+  **NOT** present the feature as green; carry the red e2e into the handoff as a blocker.
 - **deployed** — a scenario failing **because of this ship** → **blocks Step 6**; report the failing
   step + screenshot/video and offer revert or fix-forward. Pre-existing breakage → include, don't block.
 
