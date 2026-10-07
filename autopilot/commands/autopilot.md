@@ -18,7 +18,7 @@ check left that exercises the deployed build; the CI / auto-reviewer / canary ha
 
 **Project-independent.** All facts from `.claude/autopilot.config.json`.
 
-Pipeline: brainstorm/spec → **`/autopilot`** = autodev Steps 0–5 (draft PR, **no stop**) → autoship
+Pipeline: brainstorm/spec → **`/autopilot`** = autodev (build → draft PR + handoff, **no stop**) → autoship
 Steps 0–6 (ready → review loop → checks → merge → canary → QA → ticket ship-status) → one combined report.
 
 ## Step 0.0 — Init check + load project config (once for the whole run)
@@ -56,7 +56,7 @@ look after the fact.
 - `--no-qa` — skip the final QA pass (not recommended: it's the only gate exercising the deployed
   build — the auto-reviewer, full-CI and canary hard gates still apply).
 - `--e2e` — opt-in scenario browser e2e (off by default), passed through to **both** phases: the local
-  fix-loop e2e in `/autodev` (Step 4.5) and the post-deploy report-only e2e in `/autoship` (Step 5.6).
+  fix-loop e2e in `/autodev` (Done #4) and the post-deploy report-only e2e in `/autoship` (Step 5.6).
   With `.qa.video.enabled`, both record video.
 - deploy URL — passed through to `/autoship` (defaults to `.deploy.urls.client`).
 - `--reconfigure` — re-run the config interview.
@@ -65,13 +65,13 @@ look after the fact.
 
 1. **Invoke the `autopilot:autodev` skill** (Skill tool — the plugin-namespaced name) with the
    spec/description argument **plus `--preloaded`** (config already loaded above).
-   **One override — its Step 5 does not stop:** do everything Step 5 says (commit, push, draft PR
-   with the populated template, print the handoff block for the record), then **continue straight to
-   step 2 below** instead of waiting for the user. Everything else in `/autodev` applies — the autonomy contract
+   **One override — its handoff does not stop:** meet every "Done means" item (commit, push, draft
+   PR with the populated template), print the handoff block for the record, then **continue straight
+   to step 2 below** instead of waiting for the user. Everything else in `/autodev` applies — the autonomy contract
    **minus its destructive/irreversible-scope STOP** (see Scope: `/autopilot` takes any task; STOP only
    on high-stakes architecture forks and unconfirmable 3rd-party API shapes), repo rules
    (`.rules.docs`), testing strategy, mandatory local browser QA for UI features.
-   **Pass `--e2e` through** if the user did — autodev's Step 4.5 then runs the local fix-loop e2e
+   **Pass `--e2e` through** if the user did — autodev then runs the local fix-loop e2e
    (recorded when video is enabled).
 2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, the deploy URL and **`--qa`**
    (omit `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it.
