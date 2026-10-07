@@ -41,7 +41,12 @@
         },
         "keyRequired": {
           "type": "boolean",
-          "description": "When true, a change with no tracker key is a hard stop (create-or-ask); when false, the key is optional."
+          "description": "When true, a change with no tracker key is a hard stop: /autodev asks for the key (or creates the issue when autoCreateIssue is true); when false, the key is optional."
+        },
+        "autoCreateIssue": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true and keyRequired, /autodev may open the tracker issue itself (via mcp) for work that clearly has none. Default false: it asks for the key instead — many repos reserve opening tickets for a human."
         },
         "shipStatus": {
           "type": "string",
@@ -67,8 +72,13 @@
         },
         "branchPattern": {
           "type": "string",
-          "description": "Template for feature branch names. Placeholders: {key} (tracker key), {slug}.",
+          "description": "Template for feature branch names. Placeholders: {key} (tracker key as written, e.g. 'POS-42'), {key_lower} (the key lower-cased, e.g. 'pos-42' — Linear's default branch style), {slug} (short kebab-case summary). The key is found in a branch name case-insensitively either way.",
           "default": "{key}-{slug}"
+        },
+        "commitStyle": {
+          "enum": ["key-prefix", "conventional"],
+          "default": "key-prefix",
+          "description": "Shape of commit subjects and the PR title (the squash subject). 'key-prefix' = '<KEY>: what + why'. 'conventional' = Conventional Commits 1.0 'type(scope): summary' (imperative, <=72 chars, no key in the subject); the tracker key goes in a 'Ticket: <KEY>' line in the PR body and a 'Refs: <KEY>' commit trailer."
         },
         "mergeStrategy": {
           "enum": ["squash", "merge", "rebase"],

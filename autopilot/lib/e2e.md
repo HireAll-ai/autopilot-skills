@@ -46,9 +46,10 @@ Non-UI flows: assert the end effect (DB row / API response), not the page.
 
 ## 3. Failures
 
-- **local** — fix-loop (this is the "tested" guarantee): find the cause, fix the code (`<KEY>:`
-  commit), `<typecheck>`, re-run that scenario. **Max 3 attempts** per scenario. Still failing → do
-  **NOT** present the feature as green; carry the red e2e into the handoff as a blocker.
+- **local** — fix-loop (this is the "tested" guarantee): find the cause, fix the code (commit with
+  `<subject>`, per `.git.commitStyle`), `<typecheck>`, re-run that scenario. **Max 3 attempts** per
+  scenario. Still failing → do **NOT** present the feature as green; carry the red e2e into the
+  handoff as a blocker.
 - **deployed** — a scenario failing **because of this ship** → **blocks Step 6**; report the failing
   step + screenshot/video and offer revert or fix-forward. Pre-existing breakage → include, don't block.
 

@@ -47,8 +47,13 @@ Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the con
 command rather than relying on variables from an earlier call (`<merge-sha>` included: once captured
 in Step 4, write it into later commands verbatim).
 
-Placeholders resolve from config: `<base>` = `.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key,
+Placeholders resolve from config: `<base>` = `.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key
+(upper-case; found in a branch name case-insensitively — `pos-42-…` carries `POS-42`),
 `<checks>` = `.git.protection.requiredChecks`, `<mergeStrategy>` = `.git.mergeStrategy`, etc.
+**`<subject>`** = a commit subject or PR title in `.git.commitStyle` (absent = `key-prefix`):
+`key-prefix` → `<KEY>: <what + why>`; `conventional` → `type(scope): summary` (Conventional Commits
+1.0, imperative, ≤72 chars, no key in the subject — it goes in a `Refs: <KEY>` commit trailer and a
+`Ticket: <KEY>` line in the PR body). The PR title is the squash subject, so it follows the same rule.
 **`<typecheck>`** = `"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"` — passes trivially when
 `.commands.typecheck` is empty and is a **no-op on a working tree that already passed** (cached by
 tree hash), so every gate below that re-asserts it costs nothing unless the code changed.
@@ -76,7 +81,8 @@ mid-run hunting for one:
   checks are independently confirmed green**. Any auto-reviewer pass bar (`.review.passBar`) is a
   self-imposed quality gate **above** protection, kept deliberately.
 - **PR template mandatory** — `.rules.prTemplate`, populate every section (None/N/A allowed), never replace it.
-- **Ticket key** — if `.tracker.keyRequired`, every change carries `<KEY>` (branch/commit prefix). Don't invent one.
+- **Ticket key** — if `.tracker.keyRequired`, every change carries `<KEY>` (branch, and the commit /
+  PR per `<subject>` — under `conventional` that's the `Refs:` trailer and the `Ticket:` line). Don't invent one.
 - **Move the ticket to `.tracker.shipStatus`** as the final step on a fully successful ship (Step 6);
   running `/autoship` IS the explicit go-ahead. Skip + report if the ship stopped short.
 - **`<typecheck>` must pass before any commit** (`.commands.typecheck`).
@@ -91,7 +97,7 @@ mid-run hunting for one:
 2. `<typecheck>` exits 0.
 3. Full CI rollup green — `gh pr checks <PR>` all `pass` (auto-reviewer included).
 4. PR body follows `.rules.prTemplate`, no empty required sections.
-5. Branch / PR carries `<KEY>` (when `.tracker.keyRequired`).
+5. Branch, PR title or PR body (`Ticket: <KEY>`) carries `<KEY>` (when `.tracker.keyRequired`).
 
 If any fails and can't be auto-fixed in the loop, **STOP and report** — do not merge.
 
@@ -105,7 +111,8 @@ git rev-parse --abbrev-ref HEAD
 git log --oneline "origin/<base>..HEAD" | head        # confirm there are commits to ship
 gh pr view --json number,isDraft,url 2>/dev/null || true   # /autodev usually left a draft PR
 ```
-If `.tracker.keyRequired` and the branch has no `<KEY>`, **STOP** and ask for the ticket. Capture the key — Step 6 transitions it.
+If `.tracker.keyRequired` and neither the branch nor an existing PR (title, `Ticket:` line) carries
+`<KEY>`, **STOP** and ask for the ticket. Capture the key — Step 6 transitions it.
 
 ## Step 0.5 — Commit stragglers; rebase on base only if it moved
 
@@ -114,7 +121,7 @@ every run (an unconditional rebase throws away `/autodev`'s pre-warmed CI). Do t
 (commit stragglers); rebase **only** when the base actually moved:
 
 1. **Clean the tree** — `git status --porcelain`. Straggling work → run `<typecheck>` first
-   (type-check must pass before *any* commit), then commit it (`<KEY>:`). A dirty tree also blocks the rebase.
+   (type-check must pass before *any* commit), then commit it (`<subject>`). A dirty tree also blocks the rebase.
 2. Rebase only if behind, then publish:
 ```bash
 git fetch origin "<base>"
@@ -137,8 +144,8 @@ must be green):
    (every required section, None/N/A allowed) and still describes the final diff — if not, rebuild
    into a temp file (`tmp=$(mktemp)`), `gh pr edit <PR> --body-file "$tmp"`, `rm "$tmp"`. Then flip:
    `gh pr ready <PR>`.
-3. **No PR yet?** Populate the template into a temp file, `gh pr create --base "<base>" --title
-   "<KEY>: <summary>" --body-file "$tmp"`, `rm "$tmp"`.
+3. **No PR yet?** Populate the template into a temp file (plus the `Ticket: <KEY>` line under
+   `conventional`), `gh pr create --base "<base>" --title "<subject>" --body-file "$tmp"`, `rm "$tmp"`.
 
 Capture the PR number (`gh pr view --json number,url`).
 
@@ -168,7 +175,7 @@ Skip Step 2.1 entirely when `.review.gate == none`. Otherwise repeat until the h
      - **Infra flake** (broken pipe / transient SSH / runner death — nothing in the code):
        `gh run rerun --failed`, re-watch — max **2 consecutive** infra reruns; a 3rd → **STOP and
        report**. Code didn't change → do **NOT** restart the review loop.
-     - **Real failure** → fix the cause, commit (`<KEY>:`), push, back to 1. Don't paper over red.
+     - **Real failure** → fix the cause, commit (`<subject>`), push, back to 1. Don't paper over red.
    - **Any other visible check** non-green (bucket ≠ `pass`/`skipping`) → investigate and fix. The
      Step 4 hard-gate re-assertion refuses `--admin` while any check is non-green.
    - **Local gate still applies:** `<typecheck>` exits 0 before any commit.

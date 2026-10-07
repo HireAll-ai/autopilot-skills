@@ -35,14 +35,29 @@ Skip when `$ARGUMENTS` has `--preloaded`.
 - **rc=2 / other** → loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
 Shell state does not persist between Bash calls — substitute config values literally. Placeholders:
-`<KEY>` = `<keyPrefix>-NNN`, `<base>` = `.git.baseBranch`, `<dev>` / `<test>` = `.commands.*`; an
-empty command means *not applicable — skip it and say so*. **`<typecheck>`** =
+`<KEY>` = `<keyPrefix>-NNN`, always upper-case, `<base>` = `.git.baseBranch`, `<dev>` / `<test>` =
+`.commands.*`; an empty command means *not applicable — skip it and say so*. **`<typecheck>`** =
 `"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"` (cached per working tree, so repeating it is free).
 
-**Preflight.** On `<base>` → **STOP** and ask to branch first (in Conductor: a fresh workspace).
-If `.tracker.keyRequired` and the branch carries no `<KEY>`: create the issue via `.tracker.mcp` when
-the work clearly has none, otherwise ask — **never invent a key**. A branch name you can't change is
-fine; carry `<KEY>` in commits and the PR.
+**`<subject>`** = a commit subject or the PR title, shaped by `.git.commitStyle` (absent =
+`key-prefix`). The repo's history and tooling (changelogs, commit linters) parse these, so the style
+is the repo's, not yours:
+- `key-prefix` → `<KEY>: <what + why>`.
+- `conventional` → `type(scope): summary` — Conventional Commits 1.0: a lower-case type (`feat`,
+  `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`; a commit-linter config in the
+  repo has the last word), optional scope, `!` for a breaking change, imperative, ≤72 chars, **no key
+  in the subject**. The key goes in a `Refs: <KEY>` trailer on each commit and a `Ticket: <KEY>` line
+  in the PR body. The PR title becomes the squash subject, so it follows the same rule.
+
+No key (tracker `none`, or optional and absent) → drop the key parts; never a dangling `: ` or `Refs:`.
+
+**Preflight.** On `<base>` → **STOP** and ask to branch first (in Conductor: a fresh workspace),
+suggesting a name from `.git.branchPattern`: `{key}` = `<KEY>`, `{key_lower}` = `<KEY>` lower-cased
+(`pos-42`), `{slug}` = a short kebab-case summary. Find the key in a branch name case-insensitively —
+`pos-42-…` carries `POS-42`. If `.tracker.keyRequired` and the branch carries no `<KEY>`: **ask** for
+it — **never invent a key**. Create the issue via `.tracker.mcp` yourself only when
+`.tracker.autoCreateIssue` is `true` and the work clearly has none; many repos reserve opening tickets
+for a human. A branch name you can't change is fine; carry `<KEY>` in commits and the PR.
 
 ## Rules (hold throughout)
 
@@ -52,7 +67,7 @@ fine; carry `<KEY>` in commits and the PR.
   (pure config/data-model/tooling) may have none; say so. If those docs prescribe "ask before writing
   tests", invoking `/autodev` is that opt-in — write them now; they're reviewed with the code at the
   handoff.
-- **Commits** `<KEY>: what + why`, intentional staging. `<typecheck>` green before every push.
+- **Commits** — `<subject>`, intentional staging. `<typecheck>` green before every push.
 - **Never ship.** Draft PR only: never mark it ready, merge, deploy, or move the ticket.
 - **No test backdoors in product code** (prefill routes, auth bypasses) just to make verification
   easier — offer them as a follow-up instead.
@@ -104,10 +119,10 @@ wrong** (which log / table / endpoint first). Don't re-test what unit tests cove
 `/autopilot`: still write it — it's the post-deploy checklist.)*
 
 **Draft PR.** `git push -u origin HEAD`. Body: `.rules.prTemplate` with **every** section filled
-(None/N/A allowed — context is hot now, and `/autoship` reuses it), in a temp file;
-`gh pr create --draft --base <base> --title "<KEY>: <summary>" --body-file <tmp>`. Re-run → push and
-`gh pr edit` the existing PR instead of opening a second. No manual review trigger: the auto-reviewer
-runs once `/autoship` flips the PR to ready.
+(None/N/A allowed — context is hot now, and `/autoship` reuses it), plus the `Ticket: <KEY>` line
+under `conventional`, in a temp file; `gh pr create --draft --base <base> --title "<subject>"
+--body-file <tmp>`. Re-run → push and `gh pr edit` the existing PR instead of opening a second. No
+manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to ready.
 
 ## Handoff — print, then STOP
 
