@@ -304,6 +304,24 @@
       }
     },
 
+    "changelog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill"],
+      "description": "Optional. What `/autoship --changelog` runs once a ship is verified live: a project command that DRAFTS a changelog entry (and its clip) for the shipped PRs. It must never publish — publishing stays an explicit human go-ahead. Absent → `--changelog` is a no-op with a one-line note.",
+      "properties": {
+        "skill": {
+          "type": "string",
+          "description": "The command to invoke, e.g. \"/changelog\" (a project command in .claude/commands)."
+        },
+        "args": {
+          "type": "string",
+          "default": "--from-autoship",
+          "description": "Passed before the PR refs (and their merge SHAs), so the command can tell an autoship call from a manual one."
+        }
+      }
+    },
+
     "rules": {
       "type": "object",
       "additionalProperties": false,

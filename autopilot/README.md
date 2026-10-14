@@ -102,6 +102,19 @@ merge still pending. A ticket shared by several PRs moves only once all of them 
 - Each repo needs its own `/autopilot:init`; an uninitialized one is left out and reported.
 - A PR whose branch isn't checked out anywhere locally is left out — `/autoship` never clones.
 
+## Changelog drafts (`--changelog`)
+
+`/autoship --changelog` (and `/autopilot --changelog`) hands the shipped PRs to a project command once
+the deploy is verified — set it in the repo's config:
+
+```json
+"changelog": { "skill": "/changelog", "args": "--from-autoship" }
+```
+
+The command is the repo's own (it knows its changelog API, voice and clip tooling); autoship only calls
+it in a subagent and puts its answer in the report. It **drafts only** — a published post can reach
+chats that can't be retracted, so publishing stays a human go-ahead — and it never blocks the ticket move.
+
 ## Runtime helpers
 
 | script | used by | what it saves |

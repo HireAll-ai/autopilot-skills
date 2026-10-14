@@ -1,6 +1,6 @@
 ---
-description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
-argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--reconfigure]"
+description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, an optional --changelog draft, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
+argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--changelog] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
 ---
 
@@ -33,6 +33,9 @@ Arguments (optional, any order):
   against the deployed build; with `.qa.video.enabled` the walk is **recorded to video**. Post-merge,
   so **report-only** — a failure caused by this ship surfaces a revert / fix-forward choice and
   **blocks the ticket move**; fixes are follow-up PRs, never local edits. Independent of `--qa`.
+- `--changelog` — after the ship is verified live, **draft** a changelog entry (and its clip) for the
+  shipped PRs with the repo's `.changelog.skill` (Step 5.7). Drafts only, never publishes, and never
+  blocks the ticket move. No `.changelog` in the config → a one-line note, nothing else.
 - `--reconfigure` — re-run the config interview (Step 0.0).
 - `--preloaded` — internal, passed by `/autopilot`: Step 0.0 already ran and the config is in context.
 
@@ -370,6 +373,21 @@ recorded when `.qa.video.enabled`, **report-only** (merged code — fixes are fo
 failing **because of this ship** → **blocks Step 6** + offer revert or fix-forward; pre-existing
 breakage → include, don't block. Write the run into the final report.
 
+## Step 5.7 — Optional changelog draft (`--changelog`)
+
+Only with `--changelog` (else skip silently), and only for PRs that merged **and** whose deploy Step 5
+verified — a ship that didn't land has nothing to announce. Per repo, using that repo's config:
+- No `.changelog` key → note `changelog: not configured in <repo>` and move on.
+- Else, in a **subagent** (`Agent`; recording and rendering are long and noisy), invoke
+  **`.changelog.skill`** with `.changelog.args` (default `--from-autoship`) followed by the shipped PR
+  refs and their merge SHAs, in that repo's checkout. The command decides whether the change is
+  news at all, writes the entry, records the clip and **creates a draft**.
+- **Never publish from here**, and never ask the subagent to: a changelog post reaches public feeds and
+  chats that may not be retractable. The human publishes from the draft the report names.
+- Outcome goes in the report (`Changelog:` line): the draft id + slug + clip path + the publish
+  command it printed, or `nothing user-visible`, or why it failed. A failure here **does not block**
+  Step 6 — the code is shipped; the post can be redone with the command by hand.
+
 ## Step 6 — Report + move the ticket to the ship status
 
 Print the report — one block per PR, in ship order:
@@ -383,6 +401,7 @@ Print the report — one block per PR, in ship order:
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
   Video:     <path(s) | gif in PR | n/a>
+  Changelog: <--changelog not passed | draft <id> /changelog/<slug>, clip <path> — publish: <cmd> | nothing user-visible | not configured | failed: <why>>
 
   Not shipped: <owner>/<repo>#<n> — <why: stopped at Step X | depends on #m | left out: no local
                checkout / repo not initialized | already merged / closed>

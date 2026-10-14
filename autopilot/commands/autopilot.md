@@ -1,6 +1,6 @@
 ---
 description: Full autonomous cycle, no verification stop — /autodev (plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). Takes any task — no scope or risk filter; the merge gates still apply. Project-independent: reads .claude/autopilot.config.json.
-argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [deploy-url] [--reconfigure]"
+argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [--changelog] [deploy-url] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
 ---
 
@@ -58,6 +58,8 @@ look after the fact.
 - `--e2e` — opt-in scenario browser e2e (off by default), passed through to **both** phases: the local
   fix-loop e2e in `/autodev` (Done #4) and the post-deploy report-only e2e in `/autoship` (Step 5.6).
   With `.qa.video.enabled`, both record video.
+- `--changelog` — passed through to `/autoship` (Step 5.7): once the ship is live, draft a changelog
+  entry + clip with `.changelog.skill`. Draft only — publishing stays with you.
 - deploy URL — passed through to `/autoship` (defaults to `.deploy.urls.client`).
 - `--reconfigure` — re-run the config interview.
 
@@ -75,7 +77,7 @@ look after the fact.
    (recorded when video is enabled).
 2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, **the URL of every PR step 1
    opened** (one, or one per repo when the task spans repos), the deploy URL and **`--qa`** (omit
-   `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it. Naming the PRs
+   `--qa` only if the user passed `--no-qa`), plus **`--e2e`** and **`--changelog`** if the user passed them. Naming the PRs
    keeps `/autoship` to this task — drafts opened earlier in the chat still await a human.
    **No overrides** — every hard gate applies: auto-reviewer at `.review.passBar` + zero unresolved threads, full CI green,
    template-complete PR body, clean canary, QA without blocking regressions, and only then the ticket

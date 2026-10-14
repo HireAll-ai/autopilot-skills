@@ -5,7 +5,8 @@ A Claude Code plugin marketplace for **autopilot** — project-independent auton
 - **`/autodev`** — plan → implement → test → local quality gate (+ opt-in `--e2e`, recorded to video) →
   **draft PR**, then STOP for verification. Never ships.
 - **`/autoship`** — flip the draft to ready → loop the auto-reviewer to its pass bar → required checks
-  green → repo-aware merge → deploy canary → optional `--qa`/`--e2e` → move the ticket to the ship status.
+  green → repo-aware merge → deploy canary → optional `--qa`/`--e2e` → optional `--changelog` draft →
+  move the ticket to the ship status.
   Ships every PR the chat opened, across repos — each under its own repo's config.
 - **`/autopilot`** — `/autodev` + `/autoship` back-to-back, no verification stop.
 
