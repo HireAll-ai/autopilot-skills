@@ -5,7 +5,8 @@
 # caller runs it in the BACKGROUND and is re-invoked when it exits — it must never sit in a
 # foreground Bash call, which is capped at 10 minutes.
 #
-# Usage: verify-deploy.sh <merge-sha>
+# Usage: [AUTOPILOT_REPO=<dir>] verify-deploy.sh <merge-sha>   # AUTOPILOT_REPO: the merged PR's checkout,
+#                                                             # when it isn't the cwd's repo
 # Exit:  0  verified — the running build is <merge-sha> (build-id) / the deploy run(s) went green (github-run)
 #        1  broken   — deploy run failed, or the build-id endpoint was unreachable the whole window
 #                      → hard STOP + revert recipe
@@ -19,6 +20,9 @@ set -uo pipefail
 
 SHA="${1:-}"; [ -n "$SHA" ] || { echo "usage: verify-deploy.sh <merge-sha>" >&2; exit 2; }
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+if [ -n "${AUTOPILOT_REPO:-}" ]; then   # config + `gh repo view` below follow the cwd
+  cd -- "$AUTOPILOT_REPO" || exit 2; export AUTOPILOT_REPO="$PWD"
+fi
 cfg() { "$SCRIPT_DIR/autopilot-config.sh" get "$1" "${2-}"; }
 
 TRIGGER="$(cfg '.deploy.trigger' 'none')"

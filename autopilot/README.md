@@ -88,12 +88,29 @@ The repo's conventions, not the plugin's — set once in config, applied to ever
 "git": { "branchPattern": "{key_lower}-{slug}", "commitStyle": "conventional", "...": "…" }
 ```
 
+## Multi-repo chats (`/autoship`)
+
+One chat often spans repos — an API change here, its client in a sibling repo. `/autoship` ships
+**every PR the chat opened**, not just the current repo's: it reads the PR URLs from the conversation
+(plus the current branch's PR), loads each repo's own config from that repo's checkout, and runs
+review → merge → deploy check per PR — a provider before its consumer, otherwise in the order they
+were opened. A PR that stops short holds back the PRs that depend on it; a broken deploy halts every
+merge still pending. A ticket shared by several PRs moves only once all of them shipped.
+
+- `/autoship #277 owner/other#12` ships only the named PRs. `/autopilot` names the PRs its own
+  `/autodev` phase opened, so drafts still awaiting verification aren't swept in.
+- Each repo needs its own `/autopilot:init`; an uninitialized one is left out and reported.
+- A PR whose branch isn't checked out anywhere locally is left out — `/autoship` never clones.
+
 ## Runtime helpers
 
 | script | used by | what it saves |
 |---|---|---|
 | `lib/typecheck.sh` | every `<typecheck>` gate in `/autodev` + `/autoship` | runs `.commands.typecheck` at most once per working tree (cache keyed by tree hash under the per-worktree git dir), so re-asserting the gate after a no-op rebase/push is free |
 | `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown |
+
+`autopilot-config.sh`, `typecheck.sh` and `verify-deploy.sh` all take `AUTOPILOT_REPO=<dir>` to act
+on another checkout than the cwd — how `/autoship` handles a PR in a sibling repo without `cd`.
 
 Long waits (CI watch, merge queue, deploy verify) are run with `run_in_background` — the Bash tool caps
 foreground calls at 10 minutes. `/autodev`'s local reviewers and QA run as **parallel report-only

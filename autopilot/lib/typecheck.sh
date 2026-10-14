@@ -6,13 +6,14 @@
 # one signal. This wrapper keys a cache on the hash of the full working tree (tracked + untracked,
 # respecting .gitignore): an identical tree that already passed is a no-op, any change re-runs it.
 #
-# Usage: typecheck.sh [--force]
+# Usage: [AUTOPILOT_REPO=<dir>] typecheck.sh [--force]    # AUTOPILOT_REPO: another checkout than the cwd
 # Exit:  0 = passed (or cached pass, or no typecheck configured); otherwise the typecheck's own code.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(git -C "${AUTOPILOT_REPO:-.}" rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
+export AUTOPILOT_REPO="$REPO_ROOT"   # absolute, so the config lookup below resolves the same checkout
 
 CMD="$("$SCRIPT_DIR/autopilot-config.sh" get '.commands.typecheck' '')"
 if [ -z "$CMD" ]; then echo "typecheck: skipped — .commands.typecheck is empty"; exit 0; fi

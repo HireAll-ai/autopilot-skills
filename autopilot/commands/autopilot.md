@@ -73,8 +73,10 @@ look after the fact.
    (`.rules.docs`), testing strategy, mandatory local browser QA for UI features.
    **Pass `--e2e` through** if the user did — autodev then runs the local fix-loop e2e
    (recorded when video is enabled).
-2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, the deploy URL and **`--qa`**
-   (omit `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it.
+2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, **the URL of every PR step 1
+   opened** (one, or one per repo when the task spans repos), the deploy URL and **`--qa`** (omit
+   `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it. Naming the PRs
+   keeps `/autoship` to this task — drafts opened earlier in the chat still await a human.
    **No overrides** — every hard gate applies: auto-reviewer at `.review.passBar` + zero unresolved threads, full CI green,
    template-complete PR body, clean canary, QA without blocking regressions, and only then the ticket
    → `.tracker.shipStatus`.
