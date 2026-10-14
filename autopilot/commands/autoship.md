@@ -1,6 +1,6 @@
 ---
-description: Ship + land in one — flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
-argument-hint: "[deploy-url] [--qa] [--e2e] [--reconfigure]"
+description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
+argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
 ---
 
@@ -13,12 +13,19 @@ the required checks are green, merges respecting branch protection, verifies the
 canary (optionally an automated QA / e2e pass), then moves the tracker ticket to the configured ship
 status. **No human gates.**
 
+**Every PR this chat opened ships — not just the current repo's.** A chat often spans repos (an API
+change here, its client in a sibling repo); Step 0 collects all of them and each one runs Steps
+0.5–5 in its own checkout, under its own repo's config.
+
 **Project-independent.** All project facts come from `.claude/autopilot.config.json` (Step 0.0).
 The command body hardcodes nothing.
 
 Arguments (optional, any order):
-- deploy URL — for canary (and `--qa`/`--e2e`). If omitted, use `.deploy.urls.client` (else the first
-  `.deploy.urls` entry). The human-readable source of truth is `.deploy.docsRef`.
+- PR refs — `#277`, `owner/repo#12` or a PR URL: ship **only** these (a bare `#n` is the cwd repo's).
+  Omitted → every PR this chat opened (Step 0).
+- deploy URL — for canary (and `--qa`/`--e2e`) of the cwd repo's PR. If omitted, and for PRs in other
+  repos, use that repo's `.deploy.urls.client` (else the first `.deploy.urls` entry). The
+  human-readable source of truth is `.deploy.docsRef`.
 - `--qa` — after a clean canary, run an automated **report-only** QA pass (`.qa.qaOnlySkill`) against
   the deployed build, scoped to the flows this PR touched. A real critical/high regression from this
   ship **blocks the ticket move** (Step 6).
@@ -37,8 +44,9 @@ Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the con
 "${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" load; echo "rc=$?"     # add --reconfigure if passed
 ```
 - **rc=0** → stdout **is** the config — read once, keep it in context.
-- **rc=4** → `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack,
-  config, factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
+- **rc=4** → `NOT_INITIALIZED` → **STOP** for this repo's PR. Tell the user to run
+  **`/autopilot:init`** first (gstack, config, factory scaffold, DESIGN.md + docs bootstrap), then
+  re-run this command. PRs this chat opened in other, initialized repos still ship (Step 0).
 - **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md` and
   run it. `/autoship` needs the tracker/review/deploy sections populated to run at all.
 - **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.
@@ -47,9 +55,10 @@ Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the con
 command rather than relying on variables from an earlier call (`<merge-sha>` included: once captured
 in Step 4, write it into later commands verbatim).
 
-Placeholders resolve from config: `<base>` = `.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key
-(upper-case; found in a branch name case-insensitively — `pos-42-…` carries `POS-42`),
-`<checks>` = `.git.protection.requiredChecks`, `<mergeStrategy>` = `.git.mergeStrategy`, etc.
+Placeholders resolve from the config **of the repo whose PR is shipping**: `<base>` =
+`.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key (upper-case; found in a branch name
+case-insensitively — `pos-42-…` carries `POS-42`), `<checks>` = `.git.protection.requiredChecks`,
+`<mergeStrategy>` = `.git.mergeStrategy`, etc.
 **`<subject>`** = a commit subject or PR title in `.git.commitStyle` (absent = `key-prefix`):
 `key-prefix` → `<KEY>: <what + why>`; `conventional` → `type(scope): summary` (Conventional Commits
 1.0, imperative, ≤72 chars, no key in the subject — it goes in a `Refs: <KEY>` commit trailer and a
@@ -57,6 +66,12 @@ Placeholders resolve from config: `<base>` = `.git.baseBranch`, `<KEY>` = a `<ke
 **`<typecheck>`** = `"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"` — passes trivially when
 `.commands.typecheck` is empty and is a **no-op on a working tree that already passed** (cached by
 tree hash), so every gate below that re-asserts it costs nothing unless the code changed.
+
+**A PR in another repo** runs against its checkout `<dir>` — never `cd` there: `git -C <dir> …`;
+`gh pr <cmd> <PR-url>` in place of `<PR>` (the URL carries the repo) and `-R <owner>/<repo>` for
+`gh run` / `gh repo`; `gh api` paths spelled out as `repos/<owner>/<repo>/pulls/<number>/…`
+(`{owner}/{repo}` expands to the **cwd's** repo); and `AUTOPILOT_REPO=<dir>` (absolute) in front of
+every `${CLAUDE_PLUGIN_ROOT}/lib/*.sh` call, `<typecheck>` included.
 
 **Long waits go in the background.** CI watches, merge-queue waits and deploy verification routinely
 outlive the Bash tool's 10-minute foreground cap: run them with `run_in_background: true` — you are
@@ -91,7 +106,7 @@ mid-run hunting for one:
   `.deploy.verify`** — with an external builder, neither a green push-CI run nor a 200 from
   `.deploy.healthcheck` is evidence (the old build answers both).
 
-## Hard gate — NEVER merge unless ALL hold
+## Hard gate — NEVER merge a PR unless ALL hold (for that PR, under its repo's config)
 
 1. Auto-reviewer at `.review.passBar` AND **zero** unresolved review threads (when `.review.gate != none`).
 2. `<typecheck>` exits 0.
@@ -103,16 +118,49 @@ If any fails and can't be auto-fixed in the loop, **STOP and report** — do not
 
 ---
 
-## Step 0 — Preflight
+## Step 0 — Preflight: collect the PRs to ship
 
 ```bash
 gh auth status >/dev/null 2>&1 || echo "gh not authenticated"
 git rev-parse --abbrev-ref HEAD
-git log --oneline "origin/<base>..HEAD" | head        # confirm there are commits to ship
+git log --oneline "origin/<base>..HEAD" | head        # commits to ship on the current branch?
 gh pr view --json number,isDraft,url 2>/dev/null || true   # /autodev usually left a draft PR
 ```
-If `.tracker.keyRequired` and neither the branch nor an existing PR (title, `Ticket:` line) carries
-`<KEY>`, **STOP** and ask for the ticket. Capture the key — Step 6 transitions it.
+
+**The ship list.** PR refs in `$ARGUMENTS` → exactly those. Otherwise:
+1. **Every PR this conversation opened, in any repo** — the URLs `gh pr create` and `/autodev`'s
+   handoff printed, including PRs in sibling repos the chat worked in. GitHub doesn't record which
+   chat opened a PR, so read it from the conversation. A PR that was only *mentioned* (a link the user
+   pasted, someone else's PR) is not on the list.
+2. **Plus the current branch** — its open PR, or, with commits ahead of `<base>` and no PR yet, the PR
+   Step 1 opens. In a fresh session this is the whole list.
+3. **Drop** what is already merged or closed (`gh pr view <PR-url> --json state`) — name it in the report.
+
+For each PR, before anything merges:
+- **Checkout `<dir>`** — where this chat committed it. Unsure → `git -C <any clone> worktree list`
+  shows which worktree has its head branch. Checked out nowhere → leave the PR out (`no local
+  checkout`); don't clone, and don't switch a branch under someone else's work.
+- **Config** — the cwd repo's comes from Step 0.0. For another repo:
+  `AUTOPILOT_REPO=<dir> "${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" load; echo "rc=$?"` — once per
+  repo, keep it beside its PRs. Step 0.0's rc rules apply, but a STOP leaves out **that repo's** PRs,
+  not the run (rc=4 → "run `/autopilot:init` in `<dir>`").
+- **`<KEY>`** — if its `.tracker.keyRequired` and neither the branch nor the PR (title, `Ticket:` line)
+  carries one, **STOP** and ask — one question covering every such PR. Capture the keys — Step 6
+  transitions them.
+
+**Order.** A PR that consumes what another introduces (a shared package, an API / schema / contract
+change, a migration) ships **after** it — the provider through Step 5 first, so the consumer lands on
+a live provider. Otherwise in the order the chat opened them. Print the plan once:
+`Shipping N PR(s): <owner>/<repo>#<n> (<dir>), …`.
+
+**Then Steps 0.5–5 run once per PR, in that order**, each in its checkout under its repo's config;
+Step 6 reports them all. While one PR waits in the background (CI, merge queue, deploy verify), you may
+advance an independent PR from **another** repo; two PRs in one repo merge strictly in turn (the
+second merge would overtake the first's deploy check). When a PR stops short:
+- a hard-gate STOP (review won't converge, red CI, unresolvable conflict) drops **that PR and the PRs
+  that depend on it** — the others still ship;
+- a **broken deploy or real canary problem** (Step 5) halts every merge still pending — don't stack
+  more merges onto a production that may be broken. Report what's left unmerged.
 
 ## Step 0.5 — Commit stragglers; rebase on base only if it moved
 
@@ -144,10 +192,11 @@ must be green):
    (every required section, None/N/A allowed) and still describes the final diff — if not, rebuild
    into a temp file (`tmp=$(mktemp)`), `gh pr edit <PR> --body-file "$tmp"`, `rm "$tmp"`. Then flip:
    `gh pr ready <PR>`.
-3. **No PR yet?** Populate the template into a temp file (plus the `Ticket: <KEY>` line under
-   `conventional`), `gh pr create --base "<base>" --title "<subject>" --body-file "$tmp"`, `rm "$tmp"`.
+3. **No PR yet?** (current branch only) Populate the template into a temp file (plus the
+   `Ticket: <KEY>` line under `conventional`),
+   `gh pr create --base "<base>" --title "<subject>" --body-file "$tmp"`, `rm "$tmp"`.
 
-Capture the PR number (`gh pr view --json number,url`).
+Capture the PR number and URL (`gh pr view --json number,url`).
 
 ## Step 2 — Review + CI loop (max 5 outer iterations)
 
@@ -259,6 +308,7 @@ may then watch runs — **run it in the background** (`run_in_background: true`)
 when it exits:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/lib/verify-deploy.sh" <merge-sha>
+# another repo's PR: AUTOPILOT_REPO=<dir> "${CLAUDE_PLUGIN_ROOT}/lib/verify-deploy.sh" <merge-sha>
 ```
 
 | exit | meaning | do |
@@ -293,8 +343,8 @@ git push -u origin HEAD   # then open a PR --base "<base>" with the populated te
 
 A **light** canary that **exercises what this PR changed** — and, when 5.1 came back unverified,
 this is the *only* evidence, so make it assert something the new build alone can satisfy:
-- **UI change** → invoke **`.deploy.canarySkill`** against the deploy URL (arg, else
-  `.deploy.urls.client`, else the first `.deploy.urls` entry) for a quick page-load smoke of the
+- **UI change** → invoke **`.deploy.canarySkill`** against the deploy URL (arg — cwd repo's PR only —
+  else `.deploy.urls.client`, else the first `.deploy.urls` entry) for a quick page-load smoke of the
   touched flow.
 - **Backend / API / worker change** → hit the *shipped behavior* directly: `curl` the changed
   endpoint and assert the response, or assert the worker/queue effect. Don't collapse to "is it up" —
@@ -322,10 +372,10 @@ breakage → include, don't block. Write the run into the final report.
 
 ## Step 6 — Report + move the ticket to the ship status
 
-Print the report:
+Print the report — one block per PR, in ship order:
 ```
-/autoship complete.
-  PR:        #<n> — <title>
+/autoship complete — <N> PR(s) shipped, <M> not.
+  PR:        <owner>/<repo>#<n> — <title>
   Review:    <gate> <iters>, <passBar>, <N> resolved   (or: gate=none)
   CI:        green (<checks>)
   Merge:     <mergeStrategy> <SHA> (direct | --admin)
@@ -333,9 +383,15 @@ Print the report:
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
   Video:     <path(s) | gif in PR | n/a>
+
+  Not shipped: <owner>/<repo>#<n> — <why: stopped at Step X | depends on #m | left out: no local
+               checkout / repo not initialized | already merged / closed>
 ```
-Then **transition the ticket `<KEY>` to `.tracker.shipStatus`** — running `/autoship` is the explicit
-go-ahead, so this step **acts** (doesn't just remind). Skip entirely when `.tracker.type == none`.
+Then **transition each ticket `<KEY>` to `.tracker.shipStatus`** — once per distinct key, via the
+`.tracker` of the repo its PRs belong to, and only when **every** PR in this run that carries it
+passed the guards below (a feature split across repos isn't shipped until all its PRs are). Running
+`/autoship` is the explicit go-ahead, so this step **acts** (doesn't just remind). Skip entirely when
+`.tracker.type == none`.
 Via the configured tracker MCP (`.tracker.mcp`, e.g. `mcp__jira-server__*`):
 1. **Already there?** Read current status (`get_issue`). If it equals `.tracker.shipStatus`, **skip**
    (`already <shipStatus>`) so a re-run doesn't bounce it.
@@ -349,12 +405,14 @@ Via the configured tracker MCP (`.tracker.mcp`, e.g. `mcp__jira-server__*`):
 
 **Guards — only transition on a clean ship:** Step 4 actually merged (real SHA) AND Step 5 canary
 didn't flag a real problem AND (if `--qa`) no blocking regression AND (if `--e2e`) no scenario failing
-because of this ship. Ship stopped short → **DO NOT transition**; report the blocker. Tracker MCP
-unavailable / key not tracked → **skip** with a one-line note, don't fail the run.
+because of this ship. Any PR carrying `<KEY>` stopped short → **DO NOT transition** it; report the
+blocker. Tracker MCP unavailable / key not tracked → **skip** with a one-line note, don't fail the run.
 
 ---
 
 ### Notes
+- Ships every PR the chat opened, across repos (Step 0) — name PR refs to ship fewer. `/autopilot`
+  passes the PRs its own `/autodev` phase opened, so drafts still awaiting your verification stay put.
 - Pairs with `/autodev` (plan→build→test→draft-PR→verify-gate). For the no-verification single-shot
   variant see `/autopilot` (autodev + autoship back-to-back, staging QA ON by default).
 - Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on

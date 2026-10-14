@@ -20,6 +20,9 @@
 # config (or --reconfigure) — a detected draft is on stdout, run the interview and write it;
 # exit 4 = repo not initialized (run /autopilot:init); exit 2 = hard error (stderr).
 # `ensure` is the same minus the marker check (used by /autopilot:init itself).
+#
+# AUTOPILOT_REPO=<dir> runs any subcommand against the checkout at <dir> instead of the cwd — how
+# /autoship loads the config of a PR it ships in another repo.
 set -euo pipefail
 
 _die() { echo "autopilot-config: $*" >&2; exit 2; }
@@ -27,6 +30,7 @@ command -v jq >/dev/null 2>&1 || _die "jq is required but not installed"
 
 # --- path resolution -------------------------------------------------------------------
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+[ -z "${AUTOPILOT_REPO:-}" ] || cd -- "$AUTOPILOT_REPO" 2>/dev/null || _die "AUTOPILOT_REPO is not a directory: $AUTOPILOT_REPO"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CONFIG_PATH="${AUTOPILOT_CONFIG:-$REPO_ROOT/.claude/autopilot.config.json}"
 INIT_MARKER="$REPO_ROOT/.claude/autopilot.init.json"
