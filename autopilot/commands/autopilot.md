@@ -29,7 +29,7 @@ Steps 0–6 (ready → review loop → checks → merge → canary → QA → ti
 - **rc=0** → stdout **is** the config — keep it in context. This is the **only** load in the run:
   both phases below get `--preloaded` and skip their own Step 0.0.
 - **rc=4** → `NOT_INITIALIZED` → **STOP.** Tell the user to run **`/autopilot:init`** first (gstack,
-  config, factory scaffold, DESIGN.md + docs bootstrap), then re-run this command.
+  config, DESIGN.md + docs bootstrap), then re-run this command.
 - **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md`,
   run it, then continue.
 - **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.

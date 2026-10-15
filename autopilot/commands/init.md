@@ -1,22 +1,23 @@
 ---
-description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, makes the local backlog tracker the repo's tracker (binds its projects — several per repo — and switches off Linear/Jira/GitHub), scaffolds the software factory when fabro is available, bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship, /autopilot and /factory require.
-argument-hint: "[--force] [--skip-backlog] [--skip-design] [--skip-docs] [--skip-factory]"
+description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, makes the local backlog tracker the repo's tracker (binds its projects — several per repo — and switches off Linear/Jira/GitHub), bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship and /autopilot require.
+argument-hint: "[--force] [--skip-backlog] [--skip-design] [--skip-docs]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, AskUserQuestion, mcp__backlog__list_projects, mcp__backlog__create_project, mcp__backlog__update_project
 ---
 
 # /autopilot:init — make this repo autopilot-ready
 
-Run once per repository, **before** the first `/autodev`, `/autoship`,
-`/autopilot` or `/factory` run. Those commands check for the marker this
+Run once per repository, **before** the first `/autodev`, `/autoship` or
+`/autopilot` run. Those commands check for the marker this
 command writes (`.claude/autopilot.init.json`) and stop if it is missing.
 Idempotent: re-running verifies each item and only fixes what is missing;
 `--force` redoes everything.
 
 ## Step 1 — gstack present?
 
-The factory lanes and the autopilot QA/review/canary steps delegate to gstack
-skills (/qa, /cso, /design-consultation, /document-generate, /document-release,
-/canary), so gstack is a hard dependency:
+The autopilot QA steps (and review/canary, when configured) and this
+command's bootstraps delegate to gstack skills (/qa, /qa-only, /browse, /review,
+/canary, /design-consultation, /document-generate), so gstack is a hard
+dependency:
 
 ```bash
 GSTACK=""
@@ -94,22 +95,14 @@ projects (a monorepo's sales / marketing / admin areas); each says which part of
                 "shipStatus": "done", "shipStatusVia": [], "followUps": "ask" }
    ```
    Then `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" validate`; it rides along in the init commit
-   (Step 7). The operator can decline the switch — then the projects stay bound, and follow-ups still
+   (Step 6). The operator can decline the switch — then the projects stay bound, and follow-ups still
    go to them.
 
-## Step 4 — factory scaffold (skip with `--skip-factory`)
+## Step 4 — design system bootstrap (skip with `--skip-design`)
 
-If the fabro CLI is installed (`command -v fabro`) and `factory/` or
-`.fabro/workflows/` is absent → run `/factory-init` now (it scaffolds the five
-lanes, hooks incl. canary, e2e machinery, and personalizes `factory/config.env`).
-If fabro is missing: note it in the report (`brew install fabro-sh/tap/fabro-nightly`)
-and record `"factory": "skipped-no-fabro"` — `/autodev` and `/autoship` work
-without the factory; `/factory` does not.
-
-## Step 5 — design system bootstrap (skip with `--skip-design`)
-
-The factory's spec/implement/iterate prompts follow `DESIGN.md` when it
-exists; without it every autonomous run reinvents the product's aesthetics.
+gstack's design skills (`/design-review`, `/plan-design-review`) and agents
+that find it follow `DESIGN.md`; without it every autonomous run reinvents the
+product's aesthetics.
 
 - Repo has a UI? Heuristic: framework deps (react/vue/svelte/next/vite) in
   `package.json`, or `*.html` entry points, or an existing frontend dir. No UI
@@ -120,19 +113,19 @@ exists; without it every autonomous run reinvents the product's aesthetics.
   non-interactive session, record `"design": "pending"` and tell the operator
   to run `/design-consultation` themselves; do not fake a design system.
 
-## Step 6 — documentation bootstrap (skip with `--skip-docs`)
+## Step 5 — documentation bootstrap (skip with `--skip-docs`)
 
-Autonomous runs keep docs current only if a baseline exists (the lanes'
-docs-update stage edits docs, it does not create a doc culture from zero).
+A baseline gives autonomous runs and reviewers something to read and keep up
+to date; they do not create a doc culture from zero.
 
 - Assess: README with real sections? `docs/` (or equivalent) present? If the
   Diataxis quadrants are essentially empty for the product's main flows →
   invoke gstack's `/document-generate` scoped to a **baseline**: reference +
-  how-to for the main user flows. Do not boil the ocean here — the per-run
-  docs stage grows coverage feature by feature.
+  how-to for the main user flows. Do not boil the ocean here — grow coverage
+  feature by feature later (e.g. gstack `/document-release`).
 - Record `"docs": "generated" | "already-present" | "pending"`.
 
-## Step 7 — write the marker + commit
+## Step 6 — write the marker + commit
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -141,7 +134,6 @@ cat > .claude/autopilot.init.json <<EOF
   "version": 1,
   "initializedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "gstack": "<global|vendored> <version>",
-  "factory": <true|false or "skipped-*">,
   "design": "<done|pending|not-applicable|skipped>",
   "docs": "<generated|already-present|pending|skipped>"
 }
@@ -150,14 +142,13 @@ git add .claude/autopilot.init.json
 ```
 
 Commit together with anything the steps produced (`DESIGN.md`, generated docs,
-factory scaffold, config): `chore: autopilot init (gstack, factory, design, docs)`.
+config): `chore: autopilot init (gstack, design, docs)`.
 Any `"pending"` value is allowed in the marker — it unblocks the other
 commands but MUST be listed in the final report as operator follow-up.
 
-## Step 8 — report
+## Step 7 — report
 
 One compact block: gstack (path + version, installed or found), config
 (created or existing), backlog (projects bound to this repo with their scopes, the default one, the
-tracker it replaced / declined / pending + why), factory (scaffolded / present / skipped + why), design
-(DESIGN.md written / pending / n-a), docs (what was generated), marker path,
-and the exact follow-ups if anything is pending.
+tracker it replaced / declined / pending + why), design (DESIGN.md written / pending / n-a), docs
+(what was generated), marker path, and the exact follow-ups if anything is pending.
