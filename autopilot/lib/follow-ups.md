@@ -21,11 +21,11 @@ items the operator already said no to.
 
 ## 2. Where they go
 
-- **Backlog projects first.** When the `mcp__backlog__*` tools resolve, `mcp__backlog__list_projects`
-  with `repoPath` = the repo's main checkout (`git worktree list --porcelain | sed -n
-  '1s/^worktree //p'`) gives this repo's projects — often several (a monorepo's sales / marketing /
-  admin areas), each with a `scope`. This applies whatever `.tracker.type` is: the backlog is the
-  operator's own board and runs alongside a team tracker.
+- **The backlog.** When the `mcp__backlog__*` tools resolve, `mcp__backlog__list_projects` with
+  `repoPath` = the repo's main checkout (`git worktree list --porcelain | sed -n '1s/^worktree //p'`)
+  gives this repo's projects — often several (a monorepo's sales / marketing / admin areas), each with
+  a `scope`. That holds even while `.tracker` still names the tracker the repo is moving off; say so
+  and suggest `/autopilot:init` to switch it.
 - **Else `.tracker`** (`linear` / `jira` / `github` via its MCP or CLI), **else** nowhere: the drafts
   are printed.
 
@@ -41,6 +41,9 @@ items the operator already said no to.
   another repo goes to that repo's projects (`list_projects` with that repo's root). Without backlog
   projects: `.tracker.keyPrefix`.
 - **Priority** — only when it's clear (a found regression is high; polish is low); else none.
+- **Size** (backlog) — XS / S / M / L / XL, honestly: it picks how the task starts in Conductor —
+  XS–S with `/autopilot:autopilot` (ships on its own), M+ with `/autopilot:autodev` (stops for a human
+  to verify). Unsure → the larger one.
 - **Duplicates** — search open issues first (backlog: `mcp__backlog__list_issues` with `query`); an
   existing match is shown as `already tracked: <KEY>`, not proposed again.
 
@@ -48,9 +51,9 @@ No candidates → a single `Follow-ups: none` line in the report, no question.
 
 ## 4. Propose — the operator picks
 
-Print a numbered table (`# · title · project · priority · why`), then ask with `AskUserQuestion`
+Print a numbered table (`# · title · project · size · priority · why`), then ask with `AskUserQuestion`
 (`multiSelect: true`): up to 4 options per question, up to 4 questions — option label
-`<title> → <PROJECT>`, description = the one-line why. More than 16 candidates → keep the strongest 16
+`<title> → <PROJECT> · <size>`, description = the one-line why. More than 16 candidates → keep the strongest 16
 and list the rest in text. No `AskUserQuestion` (headless / non-interactive run) → print the drafts as a
 copy-pasteable block and **file nothing**.
 
@@ -60,8 +63,8 @@ with noise and overrides teams that reserve ticket creation for a human.
 ## 5. File the picked ones
 
 - Backlog → `mcp__backlog__create_issue` with `project` (as routed, or as the operator redirected it),
-  `title`, `description` = the brief, `priority`, and `followUpOf` = the backlog issue this run was
-  started for (the `Tracker issue: <KEY>` line, or `list_issues` with `branch` = this branch) — the
+  `title`, `description` = the brief, `priority`, `size`, and `followUpOf` = the issue this run was
+  started for (`<KEY>`, the `Tracker issue:` line, or `list_issues` with `branch` = this branch) — the
   tracker links the two both ways.
 - `linear` / `jira` / `github` → that tracker's create tool via `.tracker.mcp` (`github` without an MCP:
   `gh issue create --title … --body-file …`), with a "Follow-up of `<KEY>`" line at the top of the body.

@@ -29,7 +29,7 @@
       "properties": {
         "type": {
           "enum": ["jira", "linear", "github", "backlog", "none"],
-          "description": "Tracker kind. 'backlog' makes the local ai-backlog tracker this repo's tracker — for repos without a team tracker; its MCP server (conventionally 'mcp__backlog') is served by the tracker at http://127.0.0.1:4400/mcp. A repo can hold several backlog projects: keys of every project bound to it (list_projects with repoPath) are valid and keyPrefix is the default project for new issues. Repos on jira/linear/github keep their type — the backlog runs alongside them, found at run time. 'none' disables ticket handling (the backlog still runs alongside)."
+          "description": "Tracker kind. 'backlog' (the default when it runs) is the local ai-backlog tracker; its MCP server (conventionally 'mcp__backlog') is served by the tracker at http://127.0.0.1:4400/mcp, and its issues start Conductor workspaces with /autopilot:autopilot or /autopilot:autodev by size. A repo can hold several backlog projects: keys of every project bound to it (list_projects with repoPath) are valid and keyPrefix is the default project for new issues. 'none' disables ticket handling."
         },
         "mcp": {
           "type": "string",

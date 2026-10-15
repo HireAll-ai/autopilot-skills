@@ -10,11 +10,10 @@ branch + protection, ticket prefix, commit style, health URL, and a deploy workf
 2. **Confirm in one compact message, not one question per field.** Show the detected values and fill
    the gaps the detector can't know. Prefer `AskUserQuestion` for the choices:
    - `tracker.type` / `tracker.mcp` / `tracker.shipStatus` (+ `shipStatusVia` when the board gates it) —
-     a `backlog` draft means the local tracker already has projects for this repo (`mcp__backlog`, ship
-     status `done`, `keyPrefix` = the default one when there are several). Take it only when the repo
-     has **no team tracker** — never swap `jira` / `linear` / `github` for it: the config is shared and
-     the backlog is personal (it runs alongside any tracker anyway). `tracker.followUps` — `ask`
-     (default) or `off`;
+     a `backlog` draft means the local tracker runs (`mcp__backlog`, ship status `done`; `keyPrefix` =
+     the default project, empty when several or none are bound — `/autopilot:init` Step 3 binds them).
+     It is the default, also over a `linear` / `jira` / `github` value from `--reconfigure` — confirm
+     the switch, the config is committed for everyone. `tracker.followUps` — `ask` (default) or `off`;
      `tracker.autoCreateIssue` — may `/autodev` open a missing ticket itself? Default `false` (it asks);
      check the repo's rule docs first, many reserve that for a human;
    - `git.commitStyle` — `key-prefix` (`<KEY>: …`) or `conventional` (`type(scope): …`); the draft
