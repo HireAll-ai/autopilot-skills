@@ -17,18 +17,17 @@ claude plugin install autopilot@autopilot-skills
 Every repo must be initialized once before the other commands run (they check the
 `.claude/autopilot.init.json` marker and stop otherwise). `/autopilot:init`:
 
-1. verifies **gstack** is installed (installs it if missing) — the factory lanes and QA/review/canary
-   steps delegate to gstack skills (`/qa`, `/cso`, `/design-consultation`, `/document-generate`, …);
+1. verifies **gstack** is installed (installs it if missing) — the review/QA/canary steps and the
+   bootstraps delegate to gstack skills (`/review`, `/qa`, `/design-consultation`, `/document-generate`, …);
 2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
 3. makes the local **backlog** tracker (below) the repo's tracker — binds its projects (several per
    repo: a monorepo's sales / marketing / admin areas, each with a scope) and switches the config off
    Linear / Jira / GitHub;
-4. scaffolds the **software factory** via `/factory-init` when the fabro CLI is available;
-5. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
-6. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
-7. writes the `.claude/autopilot.init.json` marker and commits.
+4. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
+5. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
+6. writes the `.claude/autopilot.init.json` marker and commits.
 
-Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs`, `--skip-factory`.
+Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs`.
 
 ## Backlog tracker + follow-ups
 

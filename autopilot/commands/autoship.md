@@ -45,7 +45,7 @@ Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the con
 ```
 - **rc=0** → stdout **is** the config — read once, keep it in context.
 - **rc=4** → `NOT_INITIALIZED` → **STOP** for this repo's PR. Tell the user to run
-  **`/autopilot:init`** first (gstack, config, factory scaffold, DESIGN.md + docs bootstrap), then
+  **`/autopilot:init`** first (gstack, config, DESIGN.md + docs bootstrap), then
   re-run this command. PRs this chat opened in other, initialized repos still ship (Step 0).
 - **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md` and
   run it. `/autoship` needs the tracker/review/deploy sections populated to run at all.
