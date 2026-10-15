@@ -56,7 +56,7 @@ command rather than relying on variables from an earlier call (`<merge-sha>` inc
 in Step 4, write it into later commands verbatim).
 
 Placeholders resolve from the config **of the repo whose PR is shipping**: `<base>` =
-`.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key (upper-case; found in a branch name
+`.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key (tracker `backlog`: any project bound to the repo; upper-case; found in a branch name
 case-insensitively — `pos-42-…` carries `POS-42`), `<checks>` = `.git.protection.requiredChecks`,
 `<mergeStrategy>` = `.git.mergeStrategy`, etc.
 **`<subject>`** = a commit subject or PR title in `.git.commitStyle` (absent = `key-prefix`):
