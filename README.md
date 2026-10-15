@@ -53,6 +53,7 @@ autopilot/                          # the plugin
   lib/typecheck.sh                            # typecheck, cached per working tree
   lib/verify-deploy.sh                        # /autoship Step 5.1 deploy proof (background)
   lib/config-interview.md, lib/e2e.md         # read on demand (first run / --e2e only)
+  lib/follow-ups.md                           # end-of-run follow-up tasks (read on demand)
   lib/record-e2e.mjs                          # Playwright scenario runner + video
   lib/factory-scaffold/                       # snapshot copied by /factory-init
   schema/autopilot.config.schema.json

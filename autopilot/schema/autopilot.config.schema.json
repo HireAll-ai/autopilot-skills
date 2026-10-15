@@ -28,8 +28,8 @@
       "description": "Issue tracker used for ticket keys and status transitions.",
       "properties": {
         "type": {
-          "enum": ["jira", "linear", "github", "none"],
-          "description": "Tracker kind. 'none' disables all ticket handling."
+          "enum": ["jira", "linear", "github", "backlog", "none"],
+          "description": "Tracker kind. 'backlog' (the default when it runs) is the local ai-backlog tracker; its MCP server (conventionally 'mcp__backlog') is served by the tracker at http://127.0.0.1:4400/mcp, and its issues start Conductor workspaces with /autopilot:autopilot or /autopilot:autodev by size. A repo can hold several backlog projects: keys of every project bound to it (list_projects with repoPath) are valid and keyPrefix is the default project for new issues. 'none' disables ticket handling."
         },
         "mcp": {
           "type": "string",
@@ -56,6 +56,11 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Ordered intermediate statuses the board may require before shipStatus (e.g. ['In Progress']). Empty when a direct transition exists."
+        },
+        "followUps": {
+          "enum": ["ask", "off"],
+          "default": "ask",
+          "description": "Follow-up tasks proposed at the end of /autodev, /autoship and /autopilot (lib/follow-ups.md). 'ask' (default): draft them, let the operator pick, file the picked ones via the tracker MCP (or print them when the tracker can't take them). 'off': don't propose follow-ups."
         }
       }
     },

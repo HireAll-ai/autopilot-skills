@@ -1,7 +1,7 @@
 ---
 description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
 ---
 
 # /autoship — ship → clean → merge → deploy → ship-status (autonomous)
@@ -56,7 +56,7 @@ command rather than relying on variables from an earlier call (`<merge-sha>` inc
 in Step 4, write it into later commands verbatim).
 
 Placeholders resolve from the config **of the repo whose PR is shipping**: `<base>` =
-`.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key (upper-case; found in a branch name
+`.git.baseBranch`, `<KEY>` = a `<keyPrefix>-NNN` key (tracker `backlog`: any project bound to the repo; upper-case; found in a branch name
 case-insensitively — `pos-42-…` carries `POS-42`), `<checks>` = `.git.protection.requiredChecks`,
 `<mergeStrategy>` = `.git.mergeStrategy`, etc.
 **`<subject>`** = a commit subject or PR title in `.git.commitStyle` (absent = `key-prefix`):
@@ -383,6 +383,7 @@ Print the report — one block per PR, in ship order:
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
   Video:     <path(s) | gif in PR | n/a>
+  Follow-ups: <N proposed in Step 7 | none>
 
   Not shipped: <owner>/<repo>#<n> — <why: stopped at Step X | depends on #m | left out: no local
                checkout / repo not initialized | already merged / closed>
@@ -392,7 +393,14 @@ Then **transition each ticket `<KEY>` to `.tracker.shipStatus`** — once per di
 passed the guards below (a feature split across repos isn't shipped until all its PRs are). Running
 `/autoship` is the explicit go-ahead, so this step **acts** (doesn't just remind). Skip entirely when
 `.tracker.type == none`.
-Via the configured tracker MCP (`.tracker.mcp`, e.g. `mcp__jira-server__*`):
+**`backlog`** has no workflow transitions. A PR with no `<KEY>` in its branch, title or body may still
+have an issue: the `Tracker issue:` key in this chat, else `<mcp>__list_issues` with `branch` = the PR's
+head branch (the tracker links Conductor workspaces to issues). Then `<mcp>__get_issue`; already
+`.tracker.shipStatus` → skip (`already <shipStatus>` — its sync marks merged work done, so this is
+common) but still comment; else `<mcp>__update_issue` with `status: <shipStatus>`. Either way
+`<mcp>__add_comment` naming the merged PR(s) and the deploy verdict. Print the status reached.
+
+Any other tracker — via the configured tracker MCP (`.tracker.mcp`, e.g. `mcp__jira-server__*`):
 1. **Already there?** Read current status (`get_issue`). If it equals `.tracker.shipStatus`, **skip**
    (`already <shipStatus>`) so a re-run doesn't bounce it.
 2. `get_transitions` for `<KEY>`. If a transition whose `to` matches `.tracker.shipStatus` is offered → `transition_issue`. Done.
@@ -408,6 +416,14 @@ didn't flag a real problem AND (if `--qa`) no blocking regression AND (if `--e2e
 because of this ship. Any PR carrying `<KEY>` stopped short → **DO NOT transition** it; report the
 blocker. Tracker MCP unavailable / key not tracked → **skip** with a one-line note, don't fail the run.
 
+## Step 7 — Follow-ups
+
+Skip when `--preloaded` (`/autopilot` proposes them once, after its combined report). Otherwise
+**Read `${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks from this ship — the
+report-only QA / e2e findings and canary notes that didn't block, a deploy left UNVERIFIED, review
+threads resolved as "later", PRs that weren't shipped and why. Runs after the ticket move, so it never
+holds up the ship; the operator's picks are filed, the rest is printed.
+
 ---
 
 ### Notes
@@ -416,6 +432,7 @@ blocker. Tracker MCP unavailable / key not tracked → **skip** with a one-line 
 - Pairs with `/autodev` (plan→build→test→draft-PR→verify-gate). For the no-verification single-shot
   variant see `/autopilot` (autodev + autoship back-to-back, staging QA ON by default).
 - Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on
-  strict protection. The ticket move (Step 6) is the one place `/autoship` writes to the tracker.
+  strict protection. The ticket move (Step 6) and the follow-ups the operator picks (Step 7) are the
+  only places `/autoship` writes to the tracker.
 - Project-independent: all facts from `.claude/autopilot.config.json`. To share the commands
   themselves across repos, install the `autopilot` plugin: `claude plugin marketplace add HireAll-ai/autopilot-skills`.

@@ -1,7 +1,7 @@
 ---
 description: Full autonomous cycle, no verification stop — /autodev (plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). Takes any task — no scope or risk filter; the merge gates still apply. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [deploy-url] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
 ---
 
 # /autopilot — feature → merged → deployed, in one run
@@ -83,6 +83,9 @@ look after the fact.
 3. **Combined final report** — one message: a one-line top summary (what shipped, where to click on
    the deployed env), then autodev's handoff block, autoship's report block, the QA verdict, and —
    if any — **Sensitive areas touched** (what changed, how to roll it back).
+4. **Follow-ups — once, for the whole run.** Both phases skipped theirs (`--preloaded`); now **Read
+   `${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks from everything both
+   phases left undone — the one question this command asks, and only after the work is shipped.
 
 ## Safety
 - This removes the *verification* gate, the launch-confirmation prompt **and any task-type/risk

@@ -1,7 +1,7 @@
 ---
-description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, scaffolds the software factory when fabro is available, bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship, /autopilot and /factory require.
-argument-hint: "[--force] [--skip-design] [--skip-docs] [--skip-factory]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, AskUserQuestion
+description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, makes the local backlog tracker the repo's tracker (binds its projects — several per repo — and switches off Linear/Jira/GitHub), scaffolds the software factory when fabro is available, bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship, /autopilot and /factory require.
+argument-hint: "[--force] [--skip-backlog] [--skip-design] [--skip-docs] [--skip-factory]"
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, AskUserQuestion, mcp__backlog__list_projects, mcp__backlog__create_project, mcp__backlog__update_project
 ---
 
 # /autopilot:init — make this repo autopilot-ready
@@ -49,7 +49,55 @@ Same loader as the other commands, minus the init-marker check (this command wri
   and run that interview.
 - **rc=2 / other** → loader hard error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
-## Step 3 — factory scaffold (skip with `--skip-factory`)
+## Step 3 — backlog tracker (skip with `--skip-backlog`)
+
+The local **backlog** tracker (ai-backlog) is the tracker: its issues open new Conductor workspaces
+that start with `/autopilot:autopilot` (size XS–S) or `/autopilot:autodev` (M and up) — which only
+work in a repo this command has initialized — and `/autodev` / `/autoship` key their commits on its
+issues, move them, and file follow-ups (`lib/follow-ups.md`) into it. One repo can hold several
+projects (a monorepo's sales / marketing / admin areas); each says which part of the repo it covers.
+
+**Repo root** — the main checkout, which Conductor workspaces are worktrees of (not this worktree):
+`git worktree list --porcelain | sed -n '1s/^worktree //p'`.
+
+1. **Reachable?** The `mcp__backlog__*` tools must resolve (the server name the operator registered;
+   `backlog` by convention). If they don't, see whether the tracker runs at all:
+   `curl -fsS --max-time 2 http://127.0.0.1:4400/api/projects`. Either way **don't block init** —
+   report it as pending with the operator follow-up: start the tracker (`corepack pnpm start` in the
+   ai-backlog repo), register its MCP once
+   (`claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp`; Codex:
+   `codex mcp add backlog --url http://127.0.0.1:4400/mcp`), then re-run `/autopilot:init` in a new
+   session.
+2. **What's there** — `mcp__backlog__list_projects` with `repoPath` = repo root (already bound, with
+   their scopes) and without a filter (every project, to offer and to know the taken keys).
+3. **Ask** which projects cover this repo — one `AskUserQuestion`, `multiSelect: true`:
+   - the bound projects stay bound unless the operator unticks them ("keep `<KEY>` — `<name>`");
+   - unbound projects whose name fits the repo or one of its areas;
+   - **New project(s)** — one per distinct area when the repo is a monorepo (`apps/*`, `packages/*`,
+     top-level product modules), else one for the whole repo: name, key (2–4 letters, not taken),
+     scope. A follow-up question confirms or edits them.
+   More than 4 options → the strongest 4 in the question, the rest listed in text.
+4. **Bind** — `create_project` for new ones; `update_project` with `repoPath` = repo root for picked
+   existing ones (a project lives in one repo — say so when it moves from another) and with `repoPath:
+   ""` for unticked ones. **Every bound project needs a scope** — directories, apps or the product
+   area it covers; propose one from the repo layout when it's empty and set it with `update_project`:
+   it's how work is routed when the repo has several projects.
+5. **Make it the repo's tracker** — set the config's tracker block, replacing whatever was there
+   (`none`, or `linear` / `jira` / `github` the operator is moving off — the config is committed, so
+   say that everyone's autopilot runs in this repo move with it, and name the old tracker in the
+   report: its open issues stay where they were). `keyPrefix` = the default project for new issues
+   (asked when several are bound); keys of every bound project are valid. Keep `keyRequired` /
+   `autoCreateIssue` / `git.commitStyle` as they were:
+   ```json
+   "tracker": { "type": "backlog", "mcp": "mcp__backlog", "keyPrefix": "<default KEY>",
+                "keyRequired": false, "autoCreateIssue": false,
+                "shipStatus": "done", "shipStatusVia": [], "followUps": "ask" }
+   ```
+   Then `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" validate`; it rides along in the init commit
+   (Step 7). The operator can decline the switch — then the projects stay bound, and follow-ups still
+   go to them.
+
+## Step 4 — factory scaffold (skip with `--skip-factory`)
 
 If the fabro CLI is installed (`command -v fabro`) and `factory/` or
 `.fabro/workflows/` is absent → run `/factory-init` now (it scaffolds the five
@@ -58,7 +106,7 @@ If fabro is missing: note it in the report (`brew install fabro-sh/tap/fabro-nig
 and record `"factory": "skipped-no-fabro"` — `/autodev` and `/autoship` work
 without the factory; `/factory` does not.
 
-## Step 4 — design system bootstrap (skip with `--skip-design`)
+## Step 5 — design system bootstrap (skip with `--skip-design`)
 
 The factory's spec/implement/iterate prompts follow `DESIGN.md` when it
 exists; without it every autonomous run reinvents the product's aesthetics.
@@ -72,7 +120,7 @@ exists; without it every autonomous run reinvents the product's aesthetics.
   non-interactive session, record `"design": "pending"` and tell the operator
   to run `/design-consultation` themselves; do not fake a design system.
 
-## Step 5 — documentation bootstrap (skip with `--skip-docs`)
+## Step 6 — documentation bootstrap (skip with `--skip-docs`)
 
 Autonomous runs keep docs current only if a baseline exists (the lanes'
 docs-update stage edits docs, it does not create a doc culture from zero).
@@ -84,7 +132,7 @@ docs-update stage edits docs, it does not create a doc culture from zero).
   docs stage grows coverage feature by feature.
 - Record `"docs": "generated" | "already-present" | "pending"`.
 
-## Step 6 — write the marker + commit
+## Step 7 — write the marker + commit
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -106,9 +154,10 @@ factory scaffold, config): `chore: autopilot init (gstack, factory, design, docs
 Any `"pending"` value is allowed in the marker — it unblocks the other
 commands but MUST be listed in the final report as operator follow-up.
 
-## Step 7 — report
+## Step 8 — report
 
 One compact block: gstack (path + version, installed or found), config
-(created or existing), factory (scaffolded / present / skipped + why), design
+(created or existing), backlog (projects bound to this repo with their scopes, the default one, the
+tracker it replaced / declined / pending + why), factory (scaffolded / present / skipped + why), design
 (DESIGN.md written / pending / n-a), docs (what was generated), marker path,
 and the exact follow-ups if anything is pending.

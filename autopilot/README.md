@@ -20,12 +20,45 @@ Every repo must be initialized once before the other commands run (they check th
 1. verifies **gstack** is installed (installs it if missing) — the factory lanes and QA/review/canary
    steps delegate to gstack skills (`/qa`, `/cso`, `/design-consultation`, `/document-generate`, …);
 2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
-3. scaffolds the **software factory** via `/factory-init` when the fabro CLI is available;
-4. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
-5. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
-6. writes the `.claude/autopilot.init.json` marker and commits.
+3. makes the local **backlog** tracker (below) the repo's tracker — binds its projects (several per
+   repo: a monorepo's sales / marketing / admin areas, each with a scope) and switches the config off
+   Linear / Jira / GitHub;
+4. scaffolds the **software factory** via `/factory-init` when the fabro CLI is available;
+5. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
+6. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
+7. writes the `.claude/autopilot.init.json` marker and commits.
 
-Idempotent; flags: `--force`, `--skip-design`, `--skip-docs`, `--skip-factory`.
+Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs`, `--skip-factory`.
+
+## Backlog tracker + follow-ups
+
+The local [ai-backlog](https://github.com/gitEventyr/ai-backlog) tracker is the default tracker
+(`tracker.type: "backlog"`; Linear / Jira / GitHub still work). It serves its own MCP server —
+register it once per machine:
+
+```bash
+claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp
+codex mcp add backlog --url http://127.0.0.1:4400/mcp      # Codex sessions
+```
+
+- **Projects, several per repo.** A backlog project points at one repo and says which part of it it
+  covers (`scope`); a monorepo usually has several (plurex: sales, marketing, admin).
+  `/autopilot:init` binds them and switches the repo's config to the backlog; keys of every bound
+  project are valid, `keyPrefix` is the default one.
+- **Issues start the right command.** **Start** on an issue opens a Conductor workspace whose prompt
+  is `/autopilot:autopilot` (size XS–S: ships on its own) or `/autopilot:autodev` (M and up: stops at a
+  draft PR for you to verify), followed by the project, the task and its brief. The tracker estimates
+  the size from the brief; anyone can override it. A repo `/autopilot:init` hasn't set up gets a plain
+  brief instead.
+- `/autodev` takes `<KEY>` from the `Tracker issue: <KEY>` line and comments the draft PR on the issue;
+  `/autoship` Step 6 sets it to `done` (found by key, or by the PR branch through the tracker's
+  workspace links).
+
+**Follow-ups** (`tracker.followUps`, default `ask`): at the end of `/autodev`, `/autoship` and — once —
+`/autopilot`, the run drafts follow-up tasks from what it deliberately left undone (deferred scope,
+report-only findings, gates that didn't run, TODOs it added), routes each to the backlog project whose
+scope covers it, sizes it (which picks its command on Start), drops duplicates, and asks which to file.
+Nothing is filed without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
 
 ## Config — detect + confirm
 
@@ -118,9 +151,9 @@ subagents**; the main agent applies the fixes. `/autopilot` loads the config onc
 `--preloaded` to both phases.
 
 **Tracker MCP permissions.** `allowed-tools` can't follow the configured tracker, so only the Jira
-server tools are pre-approved. For another tracker (e.g. Linear), add its MCP server to the consuming
-repo's `.claude/settings.json` → `permissions.allow` (e.g. `"mcp__linear"`) so `/autoship` Step 6
-doesn't stop on a permission prompt.
+and `backlog` server tools are pre-approved. For another tracker (e.g. Linear), add its MCP server to
+the consuming repo's `.claude/settings.json` → `permissions.allow` (e.g. `"mcp__linear"`) so
+`/autoship` Step 6 and the follow-up filing don't stop on a permission prompt.
 
 ## Video recording (opt-in)
 
