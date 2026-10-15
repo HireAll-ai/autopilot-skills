@@ -20,37 +20,43 @@ Every repo must be initialized once before the other commands run (they check th
 1. verifies **gstack** is installed (installs it if missing) — the factory lanes and QA/review/canary
    steps delegate to gstack skills (`/qa`, `/cso`, `/design-consultation`, `/document-generate`, …);
 2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
-3. offers to bind the repo to a project in the local **backlog** tracker (below) — bind to the
-   project that already points here, create one, pick another, or keep the current tracker;
+3. offers to bind the repo to its projects in the local **backlog** tracker (below) — several per repo
+   (a monorepo's sales / marketing / admin areas), each with a scope; the binding is stored in the
+   tracker, not in the committed config;
 4. scaffolds the **software factory** via `/factory-init` when the fabro CLI is available;
 5. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
 6. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
 7. writes the `.claude/autopilot.init.json` marker and commits.
 
-Idempotent; flags: `--force`, `--skip-tracker`, `--skip-design`, `--skip-docs`, `--skip-factory`.
+Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs`, `--skip-factory`.
 
 ## Backlog tracker + follow-ups
 
-`tracker.type: "backlog"` is the local [ai-backlog](https://github.com/gitEventyr/ai-backlog) tracker:
-issues there open new Conductor workspaces, and its MCP server is served by the tracker itself —
-register it once per machine:
+The local [ai-backlog](https://github.com/gitEventyr/ai-backlog) tracker is the operator's own board:
+its issues open new Conductor workspaces, and it serves its own MCP server — register it once per
+machine:
 
 ```bash
 claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp
 codex mcp add backlog --url http://127.0.0.1:4400/mcp      # Codex sessions
 ```
 
-With a repo bound to a backlog project (`tracker.mcp: "mcp__backlog"`, `keyPrefix` = the project
-key — the config detector proposes it when the running tracker already has a project for the repo):
-- `/autodev` takes `<KEY>` from the `Tracker issue: <KEY>` line a backlog-started workspace begins with
-  and comments the draft PR on the issue;
-- `/autoship` Step 6 sets the issue to `shipStatus` (`done`) — backlog has no transitions to walk.
+**Projects live in the tracker, several per repo.** A backlog project points at one repo (`repoPath`)
+and says which part of it it covers (`scope`); a monorepo usually has several (plurex: sales,
+marketing, admin). `/autopilot:init` sets this up, and the commands look it up at run time
+(`list_projects` with the repo's main checkout) — so the committed config stays the team's: a repo on
+Linear keeps Linear, and the backlog runs alongside it.
+- `/autodev` recognizes the `Tracker issue: <KEY>` line a backlog-started workspace begins with and
+  comments the draft PR on that issue (kept out of commits and the PR title under a team tracker).
+- `/autoship` Step 6 marks the shipped PR's backlog issue `done` (found by that key or the PR branch).
+- `tracker.type: "backlog"` only for repos **without** a team tracker: keys of every bound project are
+  valid, `keyPrefix` is the default project.
 
-**Follow-ups** (any tracker, `tracker.followUps`, default `ask`): at the end of `/autodev`, `/autoship`
-and — once — `/autopilot`, the run drafts follow-up tasks from what it deliberately left undone
-(deferred scope, report-only findings, gates that didn't run, TODOs it added), checks for duplicates,
-and asks which to file. Picked ones go to the tracker (`backlog`: linked via `followUpOf`, possibly
-into another repo's project); nothing is filed without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
+**Follow-ups** (`tracker.followUps`, default `ask`): at the end of `/autodev`, `/autoship` and — once —
+`/autopilot`, the run drafts follow-up tasks from what it deliberately left undone (deferred scope,
+report-only findings, gates that didn't run, TODOs it added), routes each to the backlog project whose
+scope covers it (else the team tracker), drops duplicates, and asks which to file. Nothing is filed
+without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
 
 ## Config — detect + confirm
 

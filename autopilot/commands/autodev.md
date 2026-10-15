@@ -35,7 +35,7 @@ Skip when `$ARGUMENTS` has `--preloaded`.
 - **rc=2 / other** → loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
 Shell state does not persist between Bash calls — substitute config values literally. Placeholders:
-`<KEY>` = `<keyPrefix>-NNN`, always upper-case, `<base>` = `.git.baseBranch`, `<dev>` / `<test>` =
+`<KEY>` = `<keyPrefix>-NNN` (tracker `backlog`: any project bound to the repo), always upper-case, `<base>` = `.git.baseBranch`, `<dev>` / `<test>` =
 `.commands.*`; an empty command means *not applicable — skip it and say so*. **`<typecheck>`** =
 `"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"` (cached per working tree, so repeating it is free).
 
@@ -54,8 +54,10 @@ No key (tracker `none`, or optional and absent) → drop the key parts; never a 
 **Preflight.** On `<base>` → **STOP** and ask to branch first (in Conductor: a fresh workspace),
 suggesting a name from `.git.branchPattern`: `{key}` = `<KEY>`, `{key_lower}` = `<KEY>` lower-cased
 (`pos-42`), `{slug}` = a short kebab-case summary. Find the key in a branch name case-insensitively —
-`pos-42-…` carries `POS-42`. A workspace started from the `backlog` tracker carries it in its first
-prompt as `Tracker issue: <KEY>` — that line wins. If `.tracker.keyRequired` and the branch carries no `<KEY>`: **ask** for
+`pos-42-…` carries `POS-42`. A workspace started from the backlog tracker begins with `Tracker issue:
+<KEY>` — with `.tracker.type` `backlog` that is `<KEY>` and wins over the branch; with a team tracker
+it's the operator's own backlog issue, tracked alongside and kept out of commits and the PR title (the
+team's conventions rule those). If `.tracker.keyRequired` and the branch carries no `<KEY>`: **ask** for
 it — **never invent a key**. Create the issue via `.tracker.mcp` yourself only when
 `.tracker.autoCreateIssue` is `true` and the work clearly has none; many repos reserve opening tickets
 for a human. A branch name you can't change is fine; carry `<KEY>` in commits and the PR.
@@ -123,9 +125,10 @@ wrong** (which log / table / endpoint first). Don't re-test what unit tests cove
 (None/N/A allowed — context is hot now, and `/autoship` reuses it), plus the `Ticket: <KEY>` line
 under `conventional`, in a temp file; `gh pr create --draft --base <base> --title "<subject>"
 --body-file <tmp>`. Re-run → push and `gh pr edit` the existing PR instead of opening a second. No
-manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to ready. Tracker
-`backlog` with a `<KEY>`: comment the draft PR URL on the issue (`<mcp>__add_comment`) — a comment,
-not a status change; the tracker follows the workspace's status from Conductor on its own.
+manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to ready. A backlog issue
+this workspace was started for (any tracker type): comment the draft PR URL on it
+(`mcp__backlog__add_comment`) — a comment, not a status change; the tracker follows the workspace's
+status from Conductor on its own.
 
 ## Handoff — print, then STOP
 

@@ -19,21 +19,34 @@ Work that is real, specific and **not** part of what just shipped:
 Not candidates: anything already done, vague wishes ("improve performance"), restatements of the PR,
 items the operator already said no to.
 
-## 2. Draft each one
+## 2. Where they go
+
+- **Backlog projects first.** When the `mcp__backlog__*` tools resolve, `mcp__backlog__list_projects`
+  with `repoPath` = the repo's main checkout (`git worktree list --porcelain | sed -n
+  '1s/^worktree //p'`) gives this repo's projects — often several (a monorepo's sales / marketing /
+  admin areas), each with a `scope`. This applies whatever `.tracker.type` is: the backlog is the
+  operator's own board and runs alongside a team tracker.
+- **Else `.tracker`** (`linear` / `jira` / `github` via its MCP or CLI), **else** nowhere: the drafts
+  are printed.
+
+## 3. Draft each one
 
 - **Title** — imperative, ≤70 chars.
 - **Brief** — self-contained, because it becomes the agent's prompt when the task is started later
-  (with `backlog`, as the first message of a new Conductor workspace): the context with file paths,
+  (for backlog, as the first message of a new Conductor workspace): the context with file paths,
   what to do, **done when**, and what not to touch. Name the PR / `<KEY>` it came from.
-- **Project** — default: this repo's project (`.tracker.keyPrefix`). Work that belongs to another repo
-  goes to that repo's project — with `backlog`, find it via `<mcp>__list_projects` with `repoPath`.
+- **Project** — route by scope: the backlog project whose `scope` covers the files / area the task
+  touches (`apps/backend/src/sales` → the sales project). Unclear between two → the closer one, with
+  the other named in the why so the operator can redirect it. One project → it. Work that belongs to
+  another repo goes to that repo's projects (`list_projects` with that repo's root). Without backlog
+  projects: `.tracker.keyPrefix`.
 - **Priority** — only when it's clear (a found regression is high; polish is low); else none.
-- **Duplicates** — search open issues first (`backlog`: `<mcp>__list_issues` with `query`); an
+- **Duplicates** — search open issues first (backlog: `mcp__backlog__list_issues` with `query`); an
   existing match is shown as `already tracked: <KEY>`, not proposed again.
 
 No candidates → a single `Follow-ups: none` line in the report, no question.
 
-## 3. Propose — the operator picks
+## 4. Propose — the operator picks
 
 Print a numbered table (`# · title · project · priority · why`), then ask with `AskUserQuestion`
 (`multiSelect: true`): up to 4 options per question, up to 4 questions — option label
@@ -44,13 +57,15 @@ copy-pasteable block and **file nothing**.
 **Never file a task the operator didn't pick** — a run that opens tickets on its own fills the board
 with noise and overrides teams that reserve ticket creation for a human.
 
-## 4. File the picked ones
+## 5. File the picked ones
 
-- `backlog` → `<mcp>__create_issue` with `project`, `title`, `description` = the brief, `priority`,
-  and `followUpOf: <KEY>` when this run has a key (the tracker links the two both ways).
+- Backlog → `mcp__backlog__create_issue` with `project` (as routed, or as the operator redirected it),
+  `title`, `description` = the brief, `priority`, and `followUpOf` = the backlog issue this run was
+  started for (the `Tracker issue: <KEY>` line, or `list_issues` with `branch` = this branch) — the
+  tracker links the two both ways.
 - `linear` / `jira` / `github` → that tracker's create tool via `.tracker.mcp` (`github` without an MCP:
   `gh issue create --title … --body-file …`), with a "Follow-up of `<KEY>`" line at the top of the body.
-- `none`, or the tracker MCP isn't reachable → print the picked briefs as a copy-pasteable block.
+- Nowhere to file, or the tracker isn't reachable → print the picked briefs as a copy-pasteable block.
 
-Report line: `Follow-ups: filed TASK-12, TASK-13 · already tracked TASK-7 · not picked 2` (with
-`backlog`, add each new issue's URL — it opens the issue, and **Start** there opens a new workspace).
+Report line: `Follow-ups: filed SALES-12, MKT-4 · already tracked SALES-7 · not picked 2` (for backlog
+issues, add each URL — it opens the issue, and **Start** there opens a new Conductor workspace).

@@ -393,7 +393,7 @@ Then **transition each ticket `<KEY>` to `.tracker.shipStatus`** — once per di
 passed the guards below (a feature split across repos isn't shipped until all its PRs are). Running
 `/autoship` is the explicit go-ahead, so this step **acts** (doesn't just remind). Skip entirely when
 `.tracker.type == none`.
-**`backlog`** has no workflow transitions: `<mcp>__get_issue`; already `.tracker.shipStatus` → skip
+**`backlog`** (as `.tracker.type`) has no workflow transitions: `<mcp>__get_issue`; already `.tracker.shipStatus` → skip
 (`already <shipStatus>`); else `<mcp>__update_issue` with `status: <shipStatus>`, then
 `<mcp>__add_comment` naming the merged PR(s) and the deploy verdict. Print the status reached.
 
@@ -413,6 +413,13 @@ didn't flag a real problem AND (if `--qa`) no blocking regression AND (if `--e2e
 because of this ship. Any PR carrying `<KEY>` stopped short → **DO NOT transition** it; report the
 blocker. Tracker MCP unavailable / key not tracked → **skip** with a one-line note, don't fail the run.
 
+**Backlog issues alongside a team tracker** — whatever `.tracker.type` is (`none` included), when the
+`mcp__backlog__*` tools resolve: a shipped PR may also carry the operator's own backlog issue — the
+`Tracker issue:` key in this chat, else `mcp__backlog__list_issues` with `branch` = the PR's head
+branch. Same guards; then `update_issue` → `done` and `add_comment` with the merged PR and the deploy
+verdict (already `done` — Conductor's sync marks merged work done — → just the comment). Skip an issue
+that is `<KEY>` itself; it was handled above.
+
 ## Step 7 — Follow-ups
 
 Skip when `--preloaded` (`/autopilot` proposes them once, after its combined report). Otherwise
@@ -429,7 +436,7 @@ holds up the ship; the operator's picks are filed, the rest is printed.
 - Pairs with `/autodev` (plan→build→test→draft-PR→verify-gate). For the no-verification single-shot
   variant see `/autopilot` (autodev + autoship back-to-back, staging QA ON by default).
 - Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on
-  strict protection. The ticket move (Step 6) and the follow-ups the operator picks (Step 7) are the
-  only places `/autoship` writes to the tracker.
+  strict protection. The ticket moves (Step 6) and the follow-ups the operator picks (Step 7) are the
+  only places `/autoship` writes to a tracker.
 - Project-independent: all facts from `.claude/autopilot.config.json`. To share the commands
   themselves across repos, install the `autopilot` plugin: `claude plugin marketplace add HireAll-ai/autopilot-skills`.

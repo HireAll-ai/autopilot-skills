@@ -154,37 +154,40 @@ _detect_health_url() {
     | head -1
 }
 
-# detect a project bound to this repo in the local backlog tracker (best effort, 1s timeout). The
-# tracker knows a repo by its main checkout — the root Conductor workspaces are worktrees of.
-_detect_backlog_project() {
+# detect the projects bound to this repo in the local backlog tracker (best effort, 1s timeout) —
+# space-separated keys; a monorepo can have several. The tracker knows a repo by its main checkout,
+# the root Conductor workspaces are worktrees of.
+_detect_backlog_projects() {
   local root
   root="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
   [ -n "$root" ] && command -v curl >/dev/null 2>&1 || return 0
   curl -fsS --max-time 1 -G "${AUTOPILOT_BACKLOG_URL:-http://127.0.0.1:4400}/api/projects" \
       --data-urlencode "repoPath=$root" 2>/dev/null \
-    | jq -r '.[0].key // empty' 2>/dev/null || true
+    | jq -r 'map(.key) | join(" ")' 2>/dev/null || true
 }
 
 _cmd_detect() {
-  local commands git_block key_prefix health workflow backlog_key
+  local commands git_block key_prefix health workflow backlog_keys
   commands="$(_detect_commands)"
   git_block="$(_detect_git | jq --arg cs "$(_detect_commit_style)" '.commitStyle = $cs')"
   key_prefix="$(_detect_key_prefix || true)"
   health="$(_detect_health_url || true)"
   workflow="$(_detect_deploy_workflow)"
-  backlog_key="$(_detect_backlog_project)"
+  backlog_keys="$(_detect_backlog_projects)"
   jq -n \
     --argjson commands "$commands" \
     --argjson git "$git_block" \
     --arg keyPrefix "${key_prefix:-}" \
     --arg health "${health:-}" \
     --arg workflow "${workflow:-}" \
-    --arg backlogKey "${backlog_key:-}" '
+    --arg backlogKeys "${backlog_keys:-}" '
     {
       version: 1,
-      tracker: (if $backlogKey != "" then
-        { type: "backlog", mcp: "mcp__backlog", keyPrefix: $backlogKey, keyRequired: false,
-          autoCreateIssue: false, shipStatus: "done", shipStatusVia: [], followUps: "ask" }
+      tracker: (($backlogKeys | split(" ") | map(select(. != ""))) as $keys |
+        if ($keys | length) > 0 then
+        # one project: its key is the default; several: the interview asks which one.
+        { type: "backlog", mcp: "mcp__backlog", keyPrefix: (if ($keys | length) == 1 then $keys[0] else "" end),
+          keyRequired: false, autoCreateIssue: false, shipStatus: "done", shipStatusVia: [], followUps: "ask" }
         else {
         type: "none",
         mcp: "",
@@ -214,7 +217,8 @@ _cmd_detect() {
         planDir: "docs/plans",
         prTemplate: ".github/pull_request_template.md"
       },
-      _note: "AUTODETECTED DRAFT — confirm/fill tracker (type,mcp,shipStatus), review.gate, deploy.urls and deploy.verify with the developer, then write to .claude/autopilot.config.json and git add it."
+      _note: ("AUTODETECTED DRAFT — confirm/fill tracker (type,mcp,shipStatus), review.gate, deploy.urls and deploy.verify with the developer, then write to .claude/autopilot.config.json and git add it."
+        + (if $backlogKeys != "" then " Backlog projects bound to this repo: \($backlogKeys) — use a backlog tracker only if the repo has no team tracker, and pick the default project for keyPrefix." else "" end))
     }'
 }
 

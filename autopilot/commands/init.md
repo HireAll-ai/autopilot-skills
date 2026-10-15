@@ -1,6 +1,6 @@
 ---
-description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, offers to bind the repo to a project in the local backlog tracker, scaffolds the software factory when fabro is available, bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship, /autopilot and /factory require.
-argument-hint: "[--force] [--skip-tracker] [--skip-design] [--skip-docs] [--skip-factory]"
+description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, offers to bind the repo to its projects in the local backlog tracker (several per repo), scaffolds the software factory when fabro is available, bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship, /autopilot and /factory require.
+argument-hint: "[--force] [--skip-backlog] [--skip-design] [--skip-docs] [--skip-factory]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, AskUserQuestion, mcp__backlog__list_projects, mcp__backlog__create_project, mcp__backlog__update_project
 ---
 
@@ -49,45 +49,53 @@ Same loader as the other commands, minus the init-marker check (this command wri
   and run that interview.
 - **rc=2 / other** → loader hard error on stderr (commonly: `jq` missing) → surface it, **STOP**.
 
-## Step 3 — task tracker project (skip with `--skip-tracker`)
+## Step 3 — backlog projects (skip with `--skip-backlog`)
 
-Offer to bind this repo to a project in the local **backlog** tracker (ai-backlog). A bound repo gets
-issues that open Conductor workspaces right here, and `/autodev` / `/autoship` use the project for
-ticket keys, the ship-status move and follow-up tasks (`lib/follow-ups.md`).
+The local **backlog** tracker (ai-backlog) is personal: it knows which of its projects live in which
+repo, and one repo can hold several (a monorepo's sales / marketing / admin areas). Binding is data
+in the tracker — each project's `repoPath` and `scope` — **never** the committed config, so teammates
+without the tracker are unaffected and a repo on Jira / Linear / GitHub keeps its tracker; the backlog
+then runs alongside it. `/autodev` and `/autoship` find the repo's projects at run time and route
+follow-up tasks (`lib/follow-ups.md`) to them by scope.
 
 **Repo root** — the main checkout, which Conductor workspaces are worktrees of (not this worktree):
 `git worktree list --porcelain | sed -n '1s/^worktree //p'`.
 
-1. **Already bound?** `.tracker.type` is `backlog` with a `.tracker.keyPrefix` → check with
-   `mcp__backlog__list_projects` that the project exists and its `repoPath` is the repo root; empty or
-   stale → fix it with `update_project`. Record `"tracker": "backlog:<KEY>"` and move on. The project
-   is gone → treat the repo as unbound (item 3).
-2. **Reachable?** The `mcp__backlog__*` tools must resolve (the server name the operator registered;
+1. **Reachable?** The `mcp__backlog__*` tools must resolve (the server name the operator registered;
    `backlog` by convention). If they don't, see whether the tracker runs at all:
    `curl -fsS --max-time 2 http://127.0.0.1:4400/api/projects`. Either way **don't block init** —
-   record `"tracker": "pending"` with the operator follow-up: start the tracker (`corepack pnpm start`
-   in the ai-backlog repo), register its MCP once
+   report it as pending with the operator follow-up: start the tracker (`corepack pnpm start` in the
+   ai-backlog repo), register its MCP once
    (`claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp`; Codex:
    `codex mcp add backlog --url http://127.0.0.1:4400/mcp`), then re-run `/autopilot:init` in a new
    session.
-3. **Offer** — `mcp__backlog__list_projects` with `repoPath` = repo root, then one `AskUserQuestion`:
-   - a project already points here → **Bind to `<KEY>` — `<name>`** (first option, recommended);
-   - **Create a project** — name: the product name from the README, else the repo directory name;
-     key: `.tracker.keyPrefix` when set, else a 2–4 letter abbreviation not already taken
-     (`list_projects` without a filter shows the taken keys);
-   - **Use another project** — a second question picks it from the full list; binding repoints its
-     `repoPath` here (`update_project`) — a project points at one repo, so say so if it moves;
-   - **Keep `<tracker>`** when `.tracker.type` is `jira` / `linear` / `github`, else **Not now** →
-     record `"tracker": "kept:<type>"` or `"declined"`.
-4. **Bind** — create or update the project as picked, then set the config's tracker block (keep the
-   current `keyRequired` / `autoCreateIssue`, else `false`) and validate:
+2. **What's there** — `mcp__backlog__list_projects` with `repoPath` = repo root (already bound, with
+   their scopes) and without a filter (every project, to offer and to know the taken keys).
+3. **Ask** which projects cover this repo — one `AskUserQuestion`, `multiSelect: true`:
+   - the bound projects stay bound unless the operator unticks them (list them, ticked by default in
+     the wording: "keep `<KEY>` — `<name>`");
+   - unbound projects whose name fits the repo or one of its areas;
+   - **New project(s)** — propose one per distinct area when the repo is a monorepo (`apps/*`,
+     `packages/*`, top-level product modules) or one for the whole repo otherwise: name, key (2–4
+     letters, not taken), scope. A follow-up question confirms or edits them.
+   More than 4 options → the strongest 4 in the question, the rest listed in text.
+4. **Bind** — `create_project` for new ones; `update_project` with `repoPath` = repo root for picked
+   existing ones (a project lives in one repo — say so when it moves from another) and with `repoPath:
+   ""` for unticked ones. **Every bound project needs a scope** — directories, apps or the product
+   area it covers; propose one from the repo layout when it's empty and set it with `update_project`:
+   it's how work gets routed when the repo has several projects.
+5. **Primary tracker** — only when `.tracker.type` is `none`: offer to make the backlog this repo's
+   tracker, then set and validate the tracker block (`keyPrefix` = the default project for new issues,
+   asked when there are several; keys of every bound project stay valid):
    ```json
-   "tracker": { "type": "backlog", "mcp": "mcp__backlog", "keyPrefix": "<KEY>",
+   "tracker": { "type": "backlog", "mcp": "mcp__backlog", "keyPrefix": "<default KEY>",
                 "keyRequired": false, "autoCreateIssue": false,
                 "shipStatus": "done", "shipStatusVia": [], "followUps": "ask" }
    ```
-   `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" validate`. Record `"tracker": "backlog:<KEY>"`;
-   the config change rides along in the init commit (Step 7).
+   `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" validate`; it rides along in the init commit
+   (Step 7). Never replace `jira` / `linear` / `github` — that config is the team's.
+
+The binding lives in the tracker, so nothing of it goes into the committed marker — report it in Step 8.
 
 ## Step 4 — factory scaffold (skip with `--skip-factory`)
 
@@ -133,7 +141,6 @@ cat > .claude/autopilot.init.json <<EOF
   "version": 1,
   "initializedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "gstack": "<global|vendored> <version>",
-  "tracker": "<backlog:KEY|kept:TYPE|declined|pending|skipped>",
   "factory": <true|false or "skipped-*">,
   "design": "<done|pending|not-applicable|skipped>",
   "docs": "<generated|already-present|pending|skipped>"
@@ -143,13 +150,14 @@ git add .claude/autopilot.init.json
 ```
 
 Commit together with anything the steps produced (`DESIGN.md`, generated docs,
-factory scaffold, config): `chore: autopilot init (gstack, tracker, factory, design, docs)`.
+factory scaffold, config): `chore: autopilot init (gstack, factory, design, docs)`.
 Any `"pending"` value is allowed in the marker — it unblocks the other
 commands but MUST be listed in the final report as operator follow-up.
 
 ## Step 8 — report
 
 One compact block: gstack (path + version, installed or found), config
-(created or existing), tracker (bound to `<KEY>` + its URL / kept / declined / pending + why), factory (scaffolded / present / skipped + why), design
+(created or existing), backlog (projects bound to this repo with their scopes / declined / pending +
+why; primary tracker or alongside `<type>`), factory (scaffolded / present / skipped + why), design
 (DESIGN.md written / pending / n-a), docs (what was generated), marker path,
 and the exact follow-ups if anything is pending.
