@@ -47,7 +47,7 @@ See the plugin README.
 .claude-plugin/marketplace.json     # this marketplace, lists the autopilot plugin
 autopilot/                          # the plugin
   .claude-plugin/plugin.json
-  commands/{init,autodev,autoship,autopilot}.md   # reference ${CLAUDE_PLUGIN_ROOT}/lib/...
+  commands/{init,autodev,autoship,autopilot}.md # reference ${CLAUDE_PLUGIN_ROOT}/lib/...
   lib/autopilot-config.sh                     # config loader (load/ensure/get/detect/validate)
   lib/typecheck.sh                            # typecheck, cached per working tree
   lib/verify-deploy.sh                        # /autoship Step 5.1 deploy proof (background)

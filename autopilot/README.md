@@ -17,8 +17,8 @@ claude plugin install autopilot@autopilot-skills
 Every repo must be initialized once before the other commands run (they check the
 `.claude/autopilot.init.json` marker and stop otherwise). `/autopilot:init`:
 
-1. verifies **gstack** is installed (installs it if missing) — the review/QA/canary steps and the
-   bootstraps delegate to gstack skills (`/review`, `/qa`, `/design-consultation`, `/document-generate`, …);
+1. verifies **gstack** is installed (installs it if missing) — the QA steps (review/canary when
+   configured) and the bootstraps delegate to gstack skills (`/qa`, `/design-consultation`, `/document-generate`, …);
 2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
 3. makes the local **backlog** tracker (below) the repo's tracker — binds its projects (several per
    repo: a monorepo's sales / marketing / admin areas, each with a scope) and switches the config off

@@ -14,9 +14,10 @@ Idempotent: re-running verifies each item and only fixes what is missing;
 
 ## Step 1 — gstack present?
 
-The autopilot review/QA/canary steps and this command's bootstraps delegate to
-gstack skills (/review, /qa, /qa-only, /browse, /canary, /design-consultation,
-/document-generate), so gstack is a hard dependency:
+The autopilot QA steps (and review/canary, when configured) and this
+command's bootstraps delegate to gstack skills (/qa, /qa-only, /browse, /review,
+/canary, /design-consultation, /document-generate), so gstack is a hard
+dependency:
 
 ```bash
 GSTACK=""
@@ -99,8 +100,9 @@ projects (a monorepo's sales / marketing / admin areas); each says which part of
 
 ## Step 4 — design system bootstrap (skip with `--skip-design`)
 
-Autonomous runs follow `DESIGN.md` when it exists; without it every one
-reinvents the product's aesthetics.
+gstack's design skills (`/design-review`, `/plan-design-review`) and agents
+that find it follow `DESIGN.md`; without it every autonomous run reinvents the
+product's aesthetics.
 
 - Repo has a UI? Heuristic: framework deps (react/vue/svelte/next/vite) in
   `package.json`, or `*.html` entry points, or an existing frontend dir. No UI
@@ -113,14 +115,14 @@ reinvents the product's aesthetics.
 
 ## Step 5 — documentation bootstrap (skip with `--skip-docs`)
 
-Autonomous runs keep docs current only if a baseline exists (they edit the
-docs a change touches; they do not create a doc culture from zero).
+A baseline gives autonomous runs and reviewers something to read and keep up
+to date; they do not create a doc culture from zero.
 
 - Assess: README with real sections? `docs/` (or equivalent) present? If the
   Diataxis quadrants are essentially empty for the product's main flows →
   invoke gstack's `/document-generate` scoped to a **baseline**: reference +
-  how-to for the main user flows. Do not boil the ocean here — later runs
-  grow coverage feature by feature.
+  how-to for the main user flows. Do not boil the ocean here — grow coverage
+  feature by feature later (e.g. gstack `/document-release`).
 - Record `"docs": "generated" | "already-present" | "pending"`.
 
 ## Step 6 — write the marker + commit
