@@ -57,7 +57,8 @@ codex mcp add backlog --url http://127.0.0.1:4400/mcp      # Codex sessions
 **Follow-ups** (`tracker.followUps`, default `ask`): at the end of `/autodev`, `/autoship` and — once —
 `/autopilot`, the run drafts follow-up tasks from what it deliberately left undone (deferred scope,
 report-only findings, gates that didn't run, TODOs it added), routes each to the backlog project whose
-scope covers it, sizes it (which picks its command on Start), drops duplicates, and asks which to file.
+scope covers it, sizes it (which picks its command on Start), drops duplicates (tickets in any status, work
+already on the base branch, open PRs), and asks which to file.
 Nothing is filed without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
 
 ## Config — detect + confirm
