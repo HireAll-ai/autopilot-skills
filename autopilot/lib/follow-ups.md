@@ -44,14 +44,37 @@ items the operator already said no to.
 - **Size** (backlog) — XS / S / M / L / XL, honestly: it picks how the task starts in Conductor —
   XS–S with `/autopilot:autopilot` (ships on its own), M+ with `/autopilot:autodev` (stops for a human
   to verify). Unsure → the larger one.
-- **Duplicates** — search open issues first (backlog: `mcp__backlog__list_issues` with `query`); an
-  existing match is shown as `already tracked: <KEY>`, not proposed again.
 
-No candidates → a single `Follow-ups: none` line in the report, no question.
+## 4. Drop duplicates — the tracker, the base branch, open PRs
 
-## 4. Propose — the operator picks
+A candidate is a duplicate when the work already exists **anywhere**, not just as an open ticket:
+other chats ship in parallel, and work can land on `<base>` without a ticket. Check all three,
+for each candidate, right before proposing:
 
-Print a numbered table (`# · title · project · size · priority · why`), then ask with `AskUserQuestion`
+1. **The tracker, every status.** Search with two or three phrasings of the candidate (its key nouns,
+   synonyms, and the language the tracker's titles are written in — often not English), **without a
+   status filter** (backlog: `mcp__backlog__list_issues` with `project` + `query`, one call per
+   phrasing; other trackers: their search, including closed). Also read the run's own issue
+   (`get_issue` → `followUps`) so a re-run doesn't refile what it filed last time.
+   - open (backlog / todo / in progress / in review) → drop, `already tracked: <KEY>`;
+   - done → drop, `already done: <KEY>`;
+   - canceled → the operator decided against it: drop, `declined: <KEY>` — propose it again only with
+     new evidence from this run, and name `<KEY>` in the why.
+2. **The base branch.** `git fetch origin "<base>" -q`, then what landed since this branch forked —
+   `git log --oneline "$(git merge-base HEAD origin/<base>)..origin/<base>"` — and
+   `git grep -n -i '<identifier>' origin/<base> -- <paths>` for the candidate's concrete hooks (a
+   route, an MCP tool, a column, a component). Fully there → drop, `already on <base>: <sha> (#n)`.
+   Partly there → keep it, but narrow the brief to what's missing and name the commit / PR it builds on.
+3. **Open PRs** — `gh pr list --state open --json number,title,headRefName` (plus `-R <owner>/<repo>`
+   for each other repo a candidate routes to): one already doing it → drop, `in flight: #n`.
+
+No candidates left → a single `Follow-ups: none` line in the report (plus the dropped ones), no question.
+
+## 5. Propose — the operator picks
+
+Print a numbered table (`# · title · project · size · priority · why`) and, under it, one line with
+the dropped duplicates and why (`Dropped: … already tracked TASK-7 · already done TASK-2 · in flight #12`),
+so the operator can overrule a false match. Then ask with `AskUserQuestion`
 (`multiSelect: true`): up to 4 options per question, up to 4 questions — option label
 `<title> → <PROJECT> · <size>`, description = the one-line why. More than 16 candidates → keep the strongest 16
 and list the rest in text. No `AskUserQuestion` (headless / non-interactive run) → print the drafts as a
@@ -60,7 +83,11 @@ copy-pasteable block and **file nothing**.
 **Never file a task the operator didn't pick** — a run that opens tickets on its own fills the board
 with noise and overrides teams that reserve ticket creation for a human.
 
-## 5. File the picked ones
+## 6. File the picked ones
+
+If the operator answered after the base or the tracker could have moved (another turn, a long wait),
+re-run step 4 on the picked ones first — a parallel chat may have filed or shipped one meanwhile;
+drop or narrow it and say so.
 
 - Backlog → `mcp__backlog__create_issue` with `project` (as routed, or as the operator redirected it),
   `title`, `description` = the brief, `priority`, `size`, and `followUpOf` = the issue this run was
@@ -70,5 +97,6 @@ with noise and overrides teams that reserve ticket creation for a human.
   `gh issue create --title … --body-file …`), with a "Follow-up of `<KEY>`" line at the top of the body.
 - Nowhere to file, or the tracker isn't reachable → print the picked briefs as a copy-pasteable block.
 
-Report line: `Follow-ups: filed SALES-12, MKT-4 · already tracked SALES-7 · not picked 2` (for backlog
+Report line: `Follow-ups: filed SALES-12, MKT-4 · already tracked SALES-7 · already done SALES-3 ·
+in flight #12 · not picked 2` (for backlog
 issues, add each URL — it opens the issue, and **Start** there opens a new Conductor workspace).
