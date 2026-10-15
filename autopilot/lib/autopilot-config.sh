@@ -102,15 +102,17 @@ _detect_git() {
   else
     base="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null || echo main)"
   fi
-  local prot='{}'
-  if [ -n "$repo" ]; then
-    prot="$(gh api "repos/$repo/branches/$base/protection" --jq '{
+  local prot='{}' out
+  # An unprotected branch is a 404 whose error body gh still prints to stdout — keep the output
+  # only when the call succeeded, or the error JSON breaks the --argjson below.
+  if [ -n "$repo" ] && out="$(gh api "repos/$repo/branches/$base/protection" --jq '{
       requiredChecks: [ (.required_status_checks.checks // [])[].context ],
       strict: (.required_status_checks.strict // false),
       requireThreadResolution: (.required_conversation_resolution.enabled // false),
       requiredApprovals: (.required_pull_request_reviews.required_approving_review_count // 0),
       adminBypassAllowed: ((.enforce_admins.enabled // true) | not)
-    }' 2>/dev/null || echo '{}')"
+    }' 2>/dev/null)"; then
+    prot="$out"
   fi
   jq -n --arg base "$base" --argjson prot "$prot" '
     {
@@ -152,30 +154,47 @@ _detect_health_url() {
     | head -1
 }
 
+# detect a project bound to this repo in the local backlog tracker (best effort, 1s timeout). The
+# tracker knows a repo by its main checkout — the root Conductor workspaces are worktrees of.
+_detect_backlog_project() {
+  local root
+  root="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+  [ -n "$root" ] && command -v curl >/dev/null 2>&1 || return 0
+  curl -fsS --max-time 1 -G "${AUTOPILOT_BACKLOG_URL:-http://127.0.0.1:4400}/api/projects" \
+      --data-urlencode "repoPath=$root" 2>/dev/null \
+    | jq -r '.[0].key // empty' 2>/dev/null || true
+}
+
 _cmd_detect() {
-  local commands git_block key_prefix health workflow
+  local commands git_block key_prefix health workflow backlog_key
   commands="$(_detect_commands)"
   git_block="$(_detect_git | jq --arg cs "$(_detect_commit_style)" '.commitStyle = $cs')"
   key_prefix="$(_detect_key_prefix || true)"
   health="$(_detect_health_url || true)"
   workflow="$(_detect_deploy_workflow)"
+  backlog_key="$(_detect_backlog_project)"
   jq -n \
     --argjson commands "$commands" \
     --argjson git "$git_block" \
     --arg keyPrefix "${key_prefix:-}" \
     --arg health "${health:-}" \
-    --arg workflow "${workflow:-}" '
+    --arg workflow "${workflow:-}" \
+    --arg backlogKey "${backlog_key:-}" '
     {
       version: 1,
-      tracker: {
+      tracker: (if $backlogKey != "" then
+        { type: "backlog", mcp: "mcp__backlog", keyPrefix: $backlogKey, keyRequired: false,
+          autoCreateIssue: false, shipStatus: "done", shipStatusVia: [], followUps: "ask" }
+        else {
         type: "none",
         mcp: "",
         keyPrefix: $keyPrefix,
         keyRequired: ($keyPrefix != ""),
         autoCreateIssue: false,
         shipStatus: "",
-        shipStatusVia: []
-      },
+        shipStatusVia: [],
+        followUps: "ask"
+      } end),
       git: $git,
       commands: (if ($commands|length)>0 then $commands else
         { install:"", typecheck:"", test:"", testFilter:"", build:"", dev:"", lint:null } end),

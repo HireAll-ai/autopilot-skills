@@ -20,12 +20,37 @@ Every repo must be initialized once before the other commands run (they check th
 1. verifies **gstack** is installed (installs it if missing) — the factory lanes and QA/review/canary
    steps delegate to gstack skills (`/qa`, `/cso`, `/design-consultation`, `/document-generate`, …);
 2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
-3. scaffolds the **software factory** via `/factory-init` when the fabro CLI is available;
-4. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
-5. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
-6. writes the `.claude/autopilot.init.json` marker and commits.
+3. offers to bind the repo to a project in the local **backlog** tracker (below) — bind to the
+   project that already points here, create one, pick another, or keep the current tracker;
+4. scaffolds the **software factory** via `/factory-init` when the fabro CLI is available;
+5. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
+6. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
+7. writes the `.claude/autopilot.init.json` marker and commits.
 
-Idempotent; flags: `--force`, `--skip-design`, `--skip-docs`, `--skip-factory`.
+Idempotent; flags: `--force`, `--skip-tracker`, `--skip-design`, `--skip-docs`, `--skip-factory`.
+
+## Backlog tracker + follow-ups
+
+`tracker.type: "backlog"` is the local [ai-backlog](https://github.com/gitEventyr/ai-backlog) tracker:
+issues there open new Conductor workspaces, and its MCP server is served by the tracker itself —
+register it once per machine:
+
+```bash
+claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp
+codex mcp add backlog --url http://127.0.0.1:4400/mcp      # Codex sessions
+```
+
+With a repo bound to a backlog project (`tracker.mcp: "mcp__backlog"`, `keyPrefix` = the project
+key — the config detector proposes it when the running tracker already has a project for the repo):
+- `/autodev` takes `<KEY>` from the `Tracker issue: <KEY>` line a backlog-started workspace begins with
+  and comments the draft PR on the issue;
+- `/autoship` Step 6 sets the issue to `shipStatus` (`done`) — backlog has no transitions to walk.
+
+**Follow-ups** (any tracker, `tracker.followUps`, default `ask`): at the end of `/autodev`, `/autoship`
+and — once — `/autopilot`, the run drafts follow-up tasks from what it deliberately left undone
+(deferred scope, report-only findings, gates that didn't run, TODOs it added), checks for duplicates,
+and asks which to file. Picked ones go to the tracker (`backlog`: linked via `followUpOf`, possibly
+into another repo's project); nothing is filed without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
 
 ## Config — detect + confirm
 
@@ -118,9 +143,9 @@ subagents**; the main agent applies the fixes. `/autopilot` loads the config onc
 `--preloaded` to both phases.
 
 **Tracker MCP permissions.** `allowed-tools` can't follow the configured tracker, so only the Jira
-server tools are pre-approved. For another tracker (e.g. Linear), add its MCP server to the consuming
-repo's `.claude/settings.json` → `permissions.allow` (e.g. `"mcp__linear"`) so `/autoship` Step 6
-doesn't stop on a permission prompt.
+and `backlog` server tools are pre-approved. For another tracker (e.g. Linear), add its MCP server to
+the consuming repo's `.claude/settings.json` → `permissions.allow` (e.g. `"mcp__linear"`) so
+`/autoship` Step 6 and the follow-up filing don't stop on a permission prompt.
 
 ## Video recording (opt-in)
 

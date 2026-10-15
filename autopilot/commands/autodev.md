@@ -1,7 +1,7 @@
 ---
 description: Autonomous feature build that ends in a verified handoff — you decide how to plan, build and test; the command fixes what must be true when you stop — tests green per the repo's strategy, local review + browser QA done (or --e2e scenarios, optionally on video), a live preview link and a test plan, and a DRAFT PR with CI pre-warmed. Then STOPS for your verification. Never ships — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--e2e] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
 ---
 
 # /autodev — build it, prove it, hand it over (never ships)
@@ -54,7 +54,8 @@ No key (tracker `none`, or optional and absent) → drop the key parts; never a 
 **Preflight.** On `<base>` → **STOP** and ask to branch first (in Conductor: a fresh workspace),
 suggesting a name from `.git.branchPattern`: `{key}` = `<KEY>`, `{key_lower}` = `<KEY>` lower-cased
 (`pos-42`), `{slug}` = a short kebab-case summary. Find the key in a branch name case-insensitively —
-`pos-42-…` carries `POS-42`. If `.tracker.keyRequired` and the branch carries no `<KEY>`: **ask** for
+`pos-42-…` carries `POS-42`. A workspace started from the `backlog` tracker carries it in its first
+prompt as `Tracker issue: <KEY>` — that line wins. If `.tracker.keyRequired` and the branch carries no `<KEY>`: **ask** for
 it — **never invent a key**. Create the issue via `.tracker.mcp` yourself only when
 `.tracker.autoCreateIssue` is `true` and the work clearly has none; many repos reserve opening tickets
 for a human. A branch name you can't change is fine; carry `<KEY>` in commits and the PR.
@@ -122,7 +123,9 @@ wrong** (which log / table / endpoint first). Don't re-test what unit tests cove
 (None/N/A allowed — context is hot now, and `/autoship` reuses it), plus the `Ticket: <KEY>` line
 under `conventional`, in a temp file; `gh pr create --draft --base <base> --title "<subject>"
 --body-file <tmp>`. Re-run → push and `gh pr edit` the existing PR instead of opening a second. No
-manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to ready.
+manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to ready. Tracker
+`backlog` with a `<KEY>`: comment the draft PR URL on the issue (`<mcp>__add_comment`) — a comment,
+not a status change; the tracker follows the workspace's status from Conductor on its own.
 
 ## Handoff — print, then STOP
 
@@ -135,6 +138,7 @@ manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to r
              gates that did NOT run: <none | which + why>
   Video:     <paths | gif in PR | n/a>
   Risks:     <open questions, blockers>
+  Follow-ups: <N proposed below | none>
 
   TEST IT
     Preview:    <url — signed in, on the feature | command/curl for non-UI work>
@@ -146,5 +150,9 @@ manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to r
 
   Looks right → /autoship  (--qa: QA the deployed build; --e2e: scenario e2e on the deployed env)
 ```
+
+Then, unless `--preloaded` (`/autopilot` proposes them once at its end), **Read
+`${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks — the operator's picks are
+filed now, the rest is printed.
 
 Do not continue past this gate — wait for the user.
