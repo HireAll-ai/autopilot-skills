@@ -1,5 +1,5 @@
 ---
-description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, makes the local backlog tracker the repo's tracker (binds its projects — several per repo — and switches off Linear/Jira/GitHub), bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship and /autopilot require.
+description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, makes the backlog tracker the repo's tracker (binds its projects — several per repo — and switches off Linear/Jira/GitHub), bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship and /autopilot require.
 argument-hint: "[--force] [--skip-backlog] [--skip-design] [--skip-docs]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, AskUserQuestion, mcp__backlog__list_projects, mcp__backlog__create_project, mcp__backlog__update_project
 ---
@@ -52,23 +52,30 @@ Same loader as the other commands, minus the init-marker check (this command wri
 
 ## Step 3 — backlog tracker (skip with `--skip-backlog`)
 
-The local **backlog** tracker (ai-backlog) is the tracker: its issues open new Conductor workspaces
-that start with `/autopilot:autopilot` (size XS–S) or `/autopilot:autodev` (M and up) — which only
-work in a repo this command has initialized — and `/autodev` / `/autoship` key their commits on its
-issues, move them, and file follow-ups (`lib/follow-ups.md`) into it. One repo can hold several
+The **backlog** tracker (ai-backlog — hosted, or local on the operator's machine) is the tracker: its
+issues open new Conductor workspaces that start with `/autopilot:autopilot` (size XS–S) or
+`/autopilot:autodev` (M and up) — which only work in a repo this command has initialized — and
+`/autodev` / `/autoship` key their commits on its issues, move them, and file follow-ups
+(`lib/follow-ups.md`) into it. One repo can hold several
 projects (a monorepo's sales / marketing / admin areas); each says which part of the repo it covers.
 
 **Repo root** — the main checkout, which Conductor workspaces are worktrees of (not this worktree):
 `git worktree list --porcelain | sed -n '1s/^worktree //p'`.
 
 1. **Reachable?** The `mcp__backlog__*` tools must resolve (the server name the operator registered;
-   `backlog` by convention). If they don't, see whether the tracker runs at all:
-   `curl -fsS --max-time 2 http://127.0.0.1:4400/api/projects`. Either way **don't block init** —
-   report it as pending with the operator follow-up: start the tracker (`corepack pnpm start` in the
-   ai-backlog repo), register its MCP once
-   (`claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp`; Codex:
-   `codex mcp add backlog --url http://127.0.0.1:4400/mcp`), then re-run `/autopilot:init` in a new
-   session.
+   `backlog` by convention). If they don't, ask the tracker itself:
+   `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" backlog` — it goes to `AUTOPILOT_BACKLOG_URL` with
+   `AUTOPILOT_BACKLOG_TOKEN` when set, else where the `backlog` MCP server in Claude Code's config
+   points, with its headers, else to a local tracker at `http://127.0.0.1:4400`, and prints
+   `up <keys>`, `refused <url> <code>` (no token for it, or a wrong one) or `down <url>` (configured,
+   no answer); nothing means no tracker is configured and none runs here. Either way **don't block
+   init** — report it as pending with the operator follow-up: register the tracker's MCP once — a
+   hosted one with its token
+   (`claude mcp add --transport http --scope user backlog https://<tracker>/mcp --header "Authorization: Bearer <token>"`;
+   Codex: `codex mcp add backlog --url https://<tracker>/mcp --bearer-token-env-var BACKLOG_TOKEN`),
+   a local one after starting it (`corepack pnpm start` in the ai-backlog repo)
+   (`claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp`) — then re-run
+   `/autopilot:init` in a new session.
 2. **What's there** — `mcp__backlog__list_projects` with `repoPath` = repo root (already bound, with
    their scopes) and without a filter (every project, to offer and to know the taken keys).
 3. **Ask** which projects cover this repo — one `AskUserQuestion`, `multiSelect: true`:

@@ -11,6 +11,7 @@
 #   autopilot-config.sh dump                 # cat the config JSON
 #   autopilot-config.sh get <jqfilter> [def] # print a value (raw); [def] if null/missing
 #   autopilot-config.sh detect               # print an autodetected DRAFT config to stdout
+#   autopilot-config.sh backlog              # probe the backlog tracker: up <keys> | refused <url> <code> | down <url>
 #   autopilot-config.sh validate [file]      # validate a config against the schema
 #   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure) → detect + exit 3
 #   autopilot-config.sh load [--reconfigure]    # init marker check (exit 4 if missing), then ensure
@@ -154,16 +155,66 @@ _detect_health_url() {
     | head -1
 }
 
-# detect the local backlog tracker (best effort, 1s timeout): prints "up" plus the keys of the
-# projects bound to this repo (a monorepo can have several), nothing when the tracker isn't running.
-# The tracker knows a repo by its main checkout, the root Conductor workspaces are worktrees of.
+# the operator's backlog MCP server as Claude Code resolves it: the server named `backlog` (the name
+# /autopilot:init registers) from local scope (this project in ~/.claude.json, the worktree or its main
+# checkout <root>), else project scope (.mcp.json), else user scope. Prints {url, headers} with
+# ${VAR} / ${VAR:-default} expanded as Claude Code does; nothing when no such server has a url.
+_backlog_mcp() {
+  local root="${1-}" config="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" server=""
+  if [ -f "$config" ]; then
+    server="$(jq -c --arg a "$REPO_ROOT" --arg b "$root" \
+      '.projects[$a].mcpServers.backlog // .projects[$b].mcpServers.backlog // empty' "$config" 2>/dev/null || true)"
+  fi
+  if [ -z "$server" ] && [ -f "$REPO_ROOT/.mcp.json" ]; then
+    server="$(jq -c '.mcpServers.backlog // empty' "$REPO_ROOT/.mcp.json" 2>/dev/null || true)"
+  fi
+  if [ -z "$server" ] && [ -f "$config" ]; then
+    server="$(jq -c '.mcpServers.backlog // empty' "$config" 2>/dev/null || true)"
+  fi
+  [ -n "$server" ] || return 0
+  printf '%s' "$server" | jq -c '
+    def expand: gsub("\\$\\{(?<n>[A-Za-z_][A-Za-z0-9_]*)(?<d>:-[^}]*)?\\}";
+      . as $m | if $ENV | has($m.n) then $ENV[$m.n] else ($m.d // ":-")[2:] end);
+    select(.url | type == "string")
+    | { url: (.url | expand),
+        headers: ((.headers // {}) | with_entries(.value |= (tostring | expand | gsub("[\r\n]"; ""))))
+      }' 2>/dev/null || true
+}
+
+# detect the backlog tracker (best effort, 5s timeout) where the operator's Claude Code reaches it:
+# AUTOPILOT_BACKLOG_URL (+ AUTOPILOT_BACKLOG_TOKEN), else the url and headers of the `backlog` MCP
+# server (a hosted tracker wants its token), else a local tracker at http://127.0.0.1:4400. Prints:
+#   up <keys>             it answered: the keys of the projects bound to this repo (a monorepo can have several)
+#   refused <url> <code>  it answered 401/403: no token for it, or a wrong one
+#   down <url>            the tracker configured above didn't answer, or not as the tracker
+# and nothing when none is configured and no local one runs. The tracker knows a repo by its main
+# checkout, the root Conductor workspaces are worktrees of.
 _detect_backlog() {
-  local root out
+  local root mcp mcp_url="" url configured="" headers="" out code
   root="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
   [ -n "$root" ] && command -v curl >/dev/null 2>&1 || return 0
-  out="$(curl -fsS --max-time 1 -G "${AUTOPILOT_BACKLOG_URL:-http://127.0.0.1:4400}/api/projects" \
-      --data-urlencode "repoPath=$root" 2>/dev/null)" || return 0
-  printf 'up %s' "$(printf '%s' "$out" | jq -r 'map(.key) | join(" ")' 2>/dev/null)"
+  mcp="$(_backlog_mcp "$root")"
+  [ -z "$mcp" ] || mcp_url="$(printf '%s' "$mcp" | jq -r '.url | sub("/+$"; "") | sub("/mcp$"; "")')"
+  if [ -n "${AUTOPILOT_BACKLOG_URL:-}" ]; then url="${AUTOPILOT_BACKLOG_URL%/}"; configured=1
+  elif [ -n "$mcp_url" ]; then url="$mcp_url"; configured=1
+  else url="http://127.0.0.1:4400"; fi
+  # The MCP server's headers go along only to its own tracker.
+  if [ -n "${AUTOPILOT_BACKLOG_TOKEN:-}" ]; then headers="Authorization: Bearer $AUTOPILOT_BACKLOG_TOKEN"
+  elif [ -n "$mcp_url" ] && [ "$mcp_url" = "$url" ]; then
+    headers="$(printf '%s' "$mcp" | jq -r '.headers | to_entries[] | "\(.key): \(.value)"')"
+  fi
+  # Headers reach curl on stdin, one per line — in argv `ps` would show the token.
+  out="$(printf '%s\n' "$headers" | curl -sS --max-time 5 -G -H @- -w '\n%{http_code}' \
+      "$url/api/projects" --data-urlencode "repoPath=$root" 2>/dev/null)" || true
+  code="${out##*$'\n'}"
+  case "$code" in
+    2??)
+      if out="$(printf '%s' "${out%$'\n'*}" | jq -er 'select(type == "array") | map(.key) | join(" ")' 2>/dev/null)"; then
+        printf 'up %s' "$out"; return 0
+      fi ;;
+    401|403) printf 'refused %s %s' "$url" "$code"; return 0 ;;
+  esac
+  [ -z "$configured" ] || printf 'down %s' "$url"
 }
 
 _cmd_detect() {
@@ -183,10 +234,11 @@ _cmd_detect() {
     --arg backlog "${backlog:-}" '
     {
       version: 1,
-      tracker: (($backlog | ltrimstr("up") | split(" ") | map(select(. != ""))) as $keys |
-        if ($backlog | startswith("up")) then
-        # one bound project: its key is the default; several or none: init Step 3 settles it.
-        { type: "backlog", mcp: "mcp__backlog", keyPrefix: (if ($keys | length) == 1 then $keys[0] else "" end),
+      tracker: (($backlog | split(" ") | map(select(. != ""))) as $w |
+        if $w[0] == "up" or $w[0] == "refused" then
+        # one bound project: its key is the default; several, none or unknown: init Step 3 settles it.
+        { type: "backlog", mcp: "mcp__backlog",
+          keyPrefix: (if $w[0] == "up" and ($w | length) == 2 then $w[1] else "" end),
           keyRequired: false, autoCreateIssue: false, shipStatus: "done", shipStatusVia: [], followUps: "ask" }
         else {
         type: "none",
@@ -218,8 +270,13 @@ _cmd_detect() {
         prTemplate: ".github/pull_request_template.md"
       },
       _note: ("AUTODETECTED DRAFT — confirm/fill tracker (type,mcp,shipStatus), review.gate, deploy.urls and deploy.verify with the developer, then write to .claude/autopilot.config.json and git add it."
-        + (if ($backlog | startswith("up")) then
-            (($backlog | ltrimstr("up ")) as $k | if $k != "" then " Backlog projects bound to this repo: \($k) — pick the default one for keyPrefix." else " The backlog tracker runs but has no project for this repo yet — /autopilot:init Step 3 binds or creates them." end)
+        + (($backlog | split(" ") | map(select(. != ""))) as $w |
+          if $w[0] == "up" then
+            ($w[1:] | join(" ")) as $k | if $k != "" then " Backlog projects bound to this repo: \($k) — pick the default one for keyPrefix." else " The backlog tracker runs but has no project for this repo yet — /autopilot:init Step 3 binds or creates them." end
+          elif $w[0] == "refused" then
+            " The backlog tracker at \($w[1]) refused autodetect (HTTP \($w[2])): no token for it, or a wrong one — the Authorization header of the backlog MCP server, else AUTOPILOT_BACKLOG_TOKEN (a server signed in with OAuth keeps its token to Claude Code). Its projects are unknown here — /autopilot:init Step 3 binds them through the MCP tools."
+          elif $w[0] == "down" then
+            " A backlog tracker is configured at \($w[1]) (the backlog MCP server, or AUTOPILOT_BACKLOG_URL) but gave no answer, so tracker is none — check that it runs and its URL, then detect again."
           else "" end))
     }'
 }
@@ -271,8 +328,9 @@ case "$cmd" in
   dump)     _cmd_dump ;;
   get)      _cmd_get "$@" ;;
   detect)   _cmd_detect ;;
+  backlog)  _detect_backlog; echo ;;
   validate) _cmd_validate "$@" ;;
   ensure)   _cmd_ensure "$@" ;;
   load)     _cmd_load "$@" ;;
-  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|validate [file]|ensure [--reconfigure]|load [--reconfigure]}" >&2; exit 2 ;;
+  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|backlog|validate [file]|ensure [--reconfigure]|load [--reconfigure]}" >&2; exit 2 ;;
 esac
