@@ -1,5 +1,5 @@
 ---
-description: Full autonomous cycle, no verification stop — /autodev (plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). Takes any task — no scope or risk filter; the merge gates still apply. Project-independent: reads .claude/autopilot.config.json.
+description: Full autonomous cycle, no verification stop — /autodev (relevance check → plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). Takes any task — no scope or risk filter; the merge gates still apply. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [deploy-url] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
 ---
@@ -10,7 +10,9 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, Ask
 > do not re-warn that merging / deploying is destructive, do not pause before Step 1. Typing this
 > command is the explicit, durable go-ahead for the whole cycle — it satisfies the "confirm
 > hard-to-reverse / outward-facing actions" reflex up front. Only the one-time config interview
-> (Step 0.0) can precede Step 1.
+> (Step 0.0) and `/autodev`'s relevance check (its Step 0.5) can precede the build — and that check
+> asks only on concrete evidence the task is done, taken, retracted or built on code that's gone,
+> never to confirm the launch.
 
 `/autodev` + `/autoship` back-to-back. The human verification gate that normally sits between them is
 **replaced by an automated QA pass** (the `--qa` mode of `/autoship`, ON by default here — the only
@@ -44,6 +46,9 @@ API policy, …), not **whether**.
 
 What still stops a run is unrelated to task type — it's the cases where continuing would mean
 **guessing** or **shipping something broken**:
+- evidence the task is no longer wanted as written — already on `<base>`, in flight in another PR or
+  issue, closed or retracted in the tracker, resting on code that's gone (`/autodev` Step 0.5: ask,
+  then follow the answer);
 - an architecture fork with no clear winner, or a 3rd-party API shape you can't confirm from docs;
 - any `/autoship` hard gate (review pass bar, CI, canary, blocking QA regression).
 
@@ -69,8 +74,10 @@ look after the fact.
    PR with the populated template), print the handoff block for the record, then **continue straight
    to step 2 below** instead of waiting for the user. Everything else in `/autodev` applies — the autonomy contract
    **minus its destructive/irreversible-scope STOP** (see Scope: `/autopilot` takes any task; STOP only
-   on high-stakes architecture forks and unconfirmable 3rd-party API shapes), repo rules
-   (`.rules.docs`), testing strategy, mandatory local browser QA for UI features.
+   on relevance doubts, high-stakes architecture forks and unconfirmable 3rd-party API shapes), repo
+   rules (`.rules.docs`), testing strategy, mandatory local browser QA for UI features. Its Step 0.5
+   relevance check runs even with `--preloaded`; the operator closing or stopping the task there ends
+   the whole run — no PR, no `/autoship`.
    **Pass `--e2e` through** if the user did — autodev then runs the local fix-loop e2e
    (recorded when video is enabled).
 2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, **the URL of every PR step 1
@@ -85,12 +92,12 @@ look after the fact.
    if any — **Sensitive areas touched** (what changed, how to roll it back).
 4. **Follow-ups — once, for the whole run.** Both phases skipped theirs (`--preloaded`); now **Read
    `${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks from everything both
-   phases left undone — the one question this command asks, and only after the work is shipped.
+   phases left undone — asked once, after the work is shipped.
 
 ## Safety
 - This removes the *verification* gate, the launch-confirmation prompt **and any task-type/risk
   filter** — not the *quality* gates: every hard gate in `/autoship` and the "don't guess" STOPs in
-  `/autodev` still stop the run.
+  `/autodev` (the relevance check first) still stop the run.
 - Nothing merges that isn't at `.review.passBar` + fully green CI.
 - A canary problem, a blocking QA regression, or (with `--e2e`) a failing deployed e2e scenario leaves
   the ticket untouched and surfaces a revert / fix-forward choice — never auto-revert silently.

@@ -1,5 +1,5 @@
 ---
-description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
+description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — re-checks the ticket is still wanted, flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
 ---
@@ -147,6 +147,10 @@ For each PR, before anything merges:
 - **`<KEY>`** — if its `.tracker.keyRequired` and neither the branch nor the PR (title, `Ticket:` line)
   carries one, **STOP** and ask — one question covering every such PR. Capture the keys — Step 6
   transitions them.
+- **Still wanted?** — **Read `${CLAUDE_PLUGIN_ROOT}/lib/relevance.md`** (step 4) and re-check what
+  could change while the PR waited: the ticket closed or retracted, or the same change landed on
+  `<base>` through another PR. Evidence → ask (one question covering every such PR) and follow the
+  answer — ship it, close the PR, or hold it. Always, `--preloaded` too.
 
 **Order.** A PR that consumes what another introduces (a shared package, an API / schema / contract
 change, a migration) ships **after** it — the provider through Step 5 first, so the consumer lands on
@@ -386,7 +390,8 @@ Print the report — one block per PR, in ship order:
   Follow-ups: <N proposed in Step 7 | none>
 
   Not shipped: <owner>/<repo>#<n> — <why: stopped at Step X | depends on #m | left out: no local
-               checkout / repo not initialized | already merged / closed>
+               checkout / repo not initialized | already merged / closed | held / closed at the
+               relevance re-check: <evidence>>
 ```
 Then **transition each ticket `<KEY>` to `.tracker.shipStatus`** — once per distinct key, via the
 `.tracker` of the repo its PRs belong to, and only when **every** PR in this run that carries it
