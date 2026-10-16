@@ -60,6 +60,19 @@ scope covers it, sizes it (which picks its command on Start), drops duplicates (
 already on the base branch, open PRs), and asks which to file.
 Nothing is filed without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
 
+## Relevance check — first, every run
+
+A task can go stale between filing and starting: the work lands on the base branch without the
+ticket, a parallel chat takes it, a comment retracts it, or the code it describes is gone. So
+`/autodev` (and with it `/autopilot`, `--preloaded` included) starts by checking — the issue's status,
+later comments and similar issues in any status, what landed on the base since it was filed, open PRs,
+and whether the files, routes and bug the brief names are still there. Concrete evidence → it asks
+(`AskUserQuestion`) and waits: continue, narrow to what's left, close the issue as done / canceled, or
+stop. No evidence → no question, one `Relevance:` line in the handoff. A task's age or a terse brief
+alone is not a reason to ask. `/autoship` re-checks before merging what can change while a PR waits —
+the ticket closed or retracted, the same change merged through another PR. Headless runs that can't
+ask stop instead of building. Procedure: [`lib/relevance.md`](lib/relevance.md).
+
 ## Config — detect + confirm
 
 On the first `/autodev` (or `/autopilot`) in a repo with no config, Step 0.0 autodetects and asks you

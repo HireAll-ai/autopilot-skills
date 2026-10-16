@@ -2,6 +2,9 @@
 
 A Claude Code plugin marketplace for **autopilot** — project-independent autonomous-dev commands.
 
+Every run first checks that the task is still relevant — not already on the base branch, in flight
+elsewhere, closed or retracted in the tracker — and asks when in doubt.
+
 - **`/autodev`** — plan → implement → test → local quality gate (+ opt-in `--e2e`, recorded to video) →
   **draft PR**, then STOP for verification. Never ships.
 - **`/autoship`** — flip the draft to ready → loop the auto-reviewer to its pass bar → required checks
@@ -52,6 +55,7 @@ autopilot/                          # the plugin
   lib/typecheck.sh                            # typecheck, cached per working tree
   lib/verify-deploy.sh                        # /autoship Step 5.1 deploy proof (background)
   lib/config-interview.md, lib/e2e.md         # read on demand (first run / --e2e only)
+  lib/relevance.md                            # start-of-run relevance check (every run)
   lib/follow-ups.md                           # end-of-run follow-up tasks (read on demand)
   lib/record-e2e.mjs                          # Playwright scenario runner + video
   schema/autopilot.config.schema.json

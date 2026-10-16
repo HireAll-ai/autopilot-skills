@@ -1,7 +1,7 @@
 ---
-description: Autonomous feature build that ends in a verified handoff — you decide how to plan, build and test; the command fixes what must be true when you stop — tests green per the repo's strategy, local review + browser QA done (or --e2e scenarios, optionally on video), a live preview link and a test plan, and a DRAFT PR with CI pre-warmed. Then STOPS for your verification. Never ships — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
+description: Autonomous feature build that ends in a verified handoff — first checks the task is still relevant (asks when in doubt), then you decide how to plan, build and test; the command fixes what must be true when you stop — tests green per the repo's strategy, local review + browser QA done (or --e2e scenarios, optionally on video), a live preview link and a test plan, and a DRAFT PR with CI pre-warmed. Then STOPS for your verification. Never ships — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--e2e] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
 ---
 
 # /autodev — build it, prove it, hand it over (never ships)
@@ -61,6 +61,15 @@ it — **never invent a key**. Create the issue via `.tracker.mcp` yourself only
 `.tracker.autoCreateIssue` is `true` and the work clearly has none; many repos reserve opening tickets
 for a human. A branch name you can't change is fine; carry `<KEY>` in commits and the PR.
 
+## Step 0.5 — Is the task still relevant? (always, `--preloaded` too)
+
+Before planning or touching code, **Read `${CLAUDE_PLUGIN_ROOT}/lib/relevance.md`** and run its check:
+the tracker (status, later comments, the same work in other issues), what landed on `<base>` since the
+task was filed, open PRs, and whether the code the brief rests on is still there. Concrete evidence
+that it's done, taken, retracted or built on code that's gone → **ask** (`AskUserQuestion`) and wait;
+the answer sets the scope — continue, narrow, close the issue or stop. No evidence → continue without
+asking.
+
 ## Rules (hold throughout)
 
 - **The repo decides how.** Obey the docs in `.rules.docs` (architecture, standards, testing
@@ -70,12 +79,14 @@ for a human. A branch name you can't change is fine; carry `<KEY>` in commits an
   tests", invoking `/autodev` is that opt-in — write them now; they're reviewed with the code at the
   handoff.
 - **Commits** — `<subject>`, intentional staging. `<typecheck>` green before every push.
-- **Never ship.** Draft PR only: never mark it ready, merge, deploy, or move the ticket.
+- **Never ship.** Draft PR only: never mark it ready, merge, deploy, or move the ticket — unless the
+  operator picks closing it at Step 0.5.
 - **No test backdoors in product code** (prefill routes, auth bypasses) just to make verification
   easier — offer them as a follow-up instead.
 - **Autonomy.** Run to completion without check-ins; make routine calls yourself and record them for
-  the handoff. **STOP and ask** only on: an architecture fork with no clear winner; destructive or
-  irreversible scope; a 3rd-party API contract you can't confirm from docs (WebFetch / context7 first).
+  the handoff. **STOP and ask** only on: a doubt that the task is still relevant (Step 0.5); an
+  architecture fork with no clear winner; destructive or irreversible scope; a 3rd-party API contract
+  you can't confirm from docs (WebFetch / context7 first).
 - **Gates named in config are load-bearing** — `.review.localReviewers`, `.qa.qaOnlySkill` (else
   `.qa.qaSkill`), `.qa.browseSkill`. One that's configured but doesn't resolve means that gate did
   **not** run: say so in the handoff. Don't install skills mid-run.
@@ -133,6 +144,7 @@ a status change; the tracker follows the workspace's status from Conductor on it
 ```
 /autodev — ready for your verification (NOT shipped).
   Ticket:    <KEY> (<tracker>)            Draft PR: #<n> — NOT mergeable, CI running
+  Relevance: <checked — what you looked at | narrowed to …: operator's call>
   Built:     <one line>                   Plan: <file | inline>
   Decisions: <calls made autonomously>
   Checks:    typecheck ✓ | tests <N ✓ | none: why> | review <reviewers ✓> | browser <qa ✓ | e2e N✓ M✗ | n/a>
