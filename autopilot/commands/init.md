@@ -64,12 +64,13 @@ projects (a monorepo's sales / marketing / admin areas); each says which part of
 
 1. **Reachable?** The `mcp__backlog__*` tools must resolve (the server name the operator registered;
    `backlog` by convention). If they don't, ask the tracker itself:
-   `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" backlog` — it goes to `AUTOPILOT_BACKLOG_URL` with
-   `AUTOPILOT_BACKLOG_TOKEN` when set, else where the `backlog` MCP server in Claude Code's config
-   points, with its headers, else to a local tracker at `http://127.0.0.1:4400`, and prints
-   `up <keys>`, `refused <url> <code>` (no token for it, or a wrong one) or `down <url>` (configured,
-   no answer); nothing means no tracker is configured and none runs here. Either way **don't block
-   init** — report it as pending with the operator follow-up: register the tracker's MCP once — a
+   `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" backlog` — it goes to `AUTOPILOT_BACKLOG_URL` when
+   set, else where the `backlog` MCP server in Claude Code's config points, with its headers
+   (`AUTOPILOT_BACKLOG_TOKEN` replaces its token), else to a local tracker at `http://127.0.0.1:4400`,
+   and prints `up <keys>`, `refused <url> <code>` (401: no token for it, or a wrong one; 403: no
+   access, or a host it doesn't answer on), `down <url> <code>` (configured; `000` = no answer, else
+   not as the tracker) or `unusable` (a `backlog` server with no http URL — stdio, a proxy command);
+   nothing means no tracker is configured and none runs here. Either way **don't block init** — report it as pending with the operator follow-up: register the tracker's MCP once — a
    hosted one with its token
    (`claude mcp add --transport http --scope user backlog https://<tracker>/mcp --header "Authorization: Bearer <token>"`;
    Codex: `codex mcp add backlog --url https://<tracker>/mcp --bearer-token-env-var BACKLOG_TOKEN`),

@@ -42,9 +42,13 @@ codex mcp add backlog --url https://<tracker>/mcp --bearer-token-env-var BACKLOG
 # a local tracker (corepack pnpm start in ai-backlog): http://127.0.0.1:4400/mcp, no token
 ```
 
-The config autodetect finds the tracker through that registration: it asks the `backlog` server's URL
-with its headers (`${VAR}` references expanded) which projects are bound to the repo. Override with
-`AUTOPILOT_BACKLOG_URL` + `AUTOPILOT_BACKLOG_TOKEN`; with neither, it tries `http://127.0.0.1:4400`.
+The config autodetect finds the tracker through Claude Code's registration: it asks the `backlog`
+server's URL, with its headers, which projects are bound to the repo — local scope, then the repo's
+`.mcp.json` only once you approved it on this machine (your settings, `.claude/settings.local.json`;
+never the repo's committed `settings.json`), then user scope. In its URL and headers `${VAR}` expands
+for `BACKLOG_*` and `AUTOPILOT_*` names only. `AUTOPILOT_BACKLOG_URL` overrides the URL and
+`AUTOPILOT_BACKLOG_TOKEN` the token — what a Codex session needs, since detect doesn't read Codex's
+config; with none of these, it tries `http://127.0.0.1:4400`.
 
 - **Projects, several per repo.** A backlog project points at one repo and says which part of it it
   covers (`scope`); a monorepo usually has several (plurex: sales, marketing, admin).
@@ -99,7 +103,7 @@ Preview / inspect via the loader (resolve the plugin dir with `claude plugin roo
 ```bash
 PLUGIN="$(claude plugin root autopilot)"     # e.g. ~/.claude/plugins/.../autopilot
 "$PLUGIN/lib/autopilot-config.sh" detect      # print an autodetected draft
-"$PLUGIN/lib/autopilot-config.sh" backlog     # probe the backlog tracker: up <keys> | refused <url> <code> | down <url>
+"$PLUGIN/lib/autopilot-config.sh" backlog     # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 "$PLUGIN/lib/autopilot-config.sh" validate     # check the written config
 "$PLUGIN/lib/autopilot-config.sh" get '.git.baseBranch'
 ```
