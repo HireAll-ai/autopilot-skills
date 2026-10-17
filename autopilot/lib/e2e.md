@@ -13,9 +13,11 @@ Two modes:
 `<plugin root>` below is the directory above this `lib/`. Config values (`.qa.*`) come from the config
 already in context — substitute them literally.
 
-**On video** = `--video` was passed **or** `.qa.video.enabled` is true. `--video` records this one run
-whatever the config says; the other `.qa.video.*` keys (format, dir, surface, maxSeconds) still apply,
-with their defaults when the config leaves them out.
+**On video** = `--video` was passed, **or** the task's brief asks for the run on video (the backlog
+tracker's `Video:` line, until it passes `--video` itself), **or** `.qa.video.enabled` is true. The first
+two record this one run whatever the config says (both count as `--video` below); the other
+`.qa.video.*` keys (format, dir, surface, maxSeconds) still apply, with their defaults when the config
+leaves them out.
 
 ## 1. Derive scenarios
 
@@ -41,7 +43,7 @@ node "<plugin root>/lib/record-e2e.mjs" <scenario>.json \
 |---|---|---|
 | 0 | all steps passed | ✓ |
 | 1 | a step failed (video still saved) | use the video to debug → §3 |
-| 2 | Playwright unavailable (not found, or can't start Chromium) | with `--video` the video was asked for: run the install its message prints (once — outside the plugin cache, so plugin updates keep it) and re-run. Otherwise, or when that install fails: run this scenario with `.qa.browseSkill` **without** video and say why there's no video — a missing recorder never blocks the e2e |
+| 2 | Playwright unavailable (not found, or none found can start Chromium and record) | with `--video` the video was asked for: run the one install its message prints (it lands outside the plugin cache, so plugin updates keep it) and re-run once. Otherwise — or the install fails, or it exits 2 again: run this scenario with `.qa.browseSkill` **without** video and quote the recorder's reason in the report — a missing recorder never blocks the e2e |
 | 3 | scenario/usage error (bad flags, malformed JSON) | **fix the scenario and re-run** — do NOT fall back, do NOT mark it green |
 
 **Not on video** → drive each scenario step-by-step with **`.qa.browseSkill`** (`/browse`): navigate →
@@ -64,14 +66,18 @@ Write the scenarios + per-step result + artifact paths (screenshots **and video*
 attached to the tracker) to `.context/e2e-<KEY>.md` (deployed mode: `.context/e2e-<KEY>-deployed.md`);
 it feeds the PR body and the final handoff/report.
 
-**Tracker `backlog` with a `<KEY>`** — whatever the surface, attach every video to the issue, where
-whoever started the task watches it: per scenario, its last run (a scenario fixed in the local
-fix-loop shows the green run, not the red ones). One `<mcp>__attach_video` call per video (`<mcp>` =
+**Tracker `backlog` with a `<KEY>`** (`/autoship`: the key its Step 6 finds — the PR's branch, title or
+body, the `Tracker issue:` line in this chat, else `list_issues` by the PR's branch) — whatever the
+surface, attach every video to the issue, where whoever started the task watches it: per scenario, its
+last run (a scenario fixed in the local fix-loop shows the green run, not the red ones). The file is
+that run's `artifacts.mp4`, else `artifacts.webm`, from the recorder's stdout JSON — the tracker takes
+no gif; both `null` → nothing to attach, say so. One `<mcp>__attach_video` call per video (`<mcp>` =
 `.tracker.mcp`; `key: <KEY>`, `name:` the scenario, deployed mode `<scenario> (deployed)`) returns a
-one-time upload URL, good for an hour and needing no token; upload the mp4 — else the webm, the tracker
-takes no gif — with the command it returns: `curl -fsS -T <file> '<uploadUrl>'`. A failed upload → once
-more with a fresh call (a URL works once); still failing → keep the path and say so. The handoff's
-`Video:` line names what was attached (`attached to <KEY>: 3` + the paths).
+one-time upload URL, good for an hour and needing no token; upload with the command it returns:
+`curl -fsS -T <file> '<uploadUrl>'`. A network error, a 5xx or a 404 (the URL expired) → once more
+with a fresh call. A 413 / 415 (too big, not a video), or `attach_video` itself failing (a daily cap, a
+tracker without the tool) → no retry: keep the path and say why. The handoff's `Video:` line names
+what was attached (`attached to <KEY>: 3`, next to the paths).
 
 Then per `.qa.video.surface`:
 

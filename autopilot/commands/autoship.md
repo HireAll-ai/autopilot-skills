@@ -86,7 +86,8 @@ mid-run hunting for one:
   key is absent or the skill doesn't resolve, Step 2.1 drives the loop inline with `gh`.
 - **`.deploy.canarySkill`** (e.g. `/canary`) — Step 5.2. Missing → `curl` the changed surface directly.
 - **`.qa.qaOnlySkill`** — Step 5.5 (only with `--qa`). **`.qa.browseSkill`** — Step 5.6 (only with
-  `--e2e` / `--video`). Missing → say the optional pass was skipped; never silently claim it ran.
+  `--e2e` / `--video`; a run on video needs it only as the recorder's fallback). Missing → say the
+  optional pass was skipped; never silently claim it ran.
 
 ## Non-negotiable rules (from config + the repo's own docs `.rules.docs`)
 
@@ -389,7 +390,7 @@ Print the report — one block per PR, in ship order:
   Deploy:    <env> — <verified <SHA> via <mode> | UNVERIFIED: <why>>, canary <ok | issues>   (or: deploy=none)
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
-  Video:     <path(s) | gif in PR | attached to <KEY>: N | n/a: why>
+  Video:     <path(s) | gif in PR>[ · attached to <KEY>: N] | n/a: why
   Follow-ups: <N proposed in Step 7 | none>
 
   Not shipped: <owner>/<repo>#<n> — <why: stopped at Step X | depends on #m | left out: no local
@@ -440,7 +441,7 @@ holds up the ship; the operator's picks are filed, the rest is printed.
 - Pairs with `/autodev` (plan→build→test→draft-PR→verify-gate). For the no-verification single-shot
   variant see `/autopilot` (autodev + autoship back-to-back, staging QA ON by default).
 - Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on
-  strict protection. The ticket move (Step 6) and the follow-ups the operator picks (Step 7) are the
-  only places `/autoship` writes to the tracker.
+  strict protection. The e2e videos (Step 5.6, backlog), the ticket move (Step 6) and the follow-ups
+  the operator picks (Step 7) are the only places `/autoship` writes to the tracker.
 - Project-independent: all facts from `.claude/autopilot.config.json`. To share the commands
   themselves across repos, install the `autopilot` plugin: `claude plugin marketplace add HireAll-ai/autopilot-skills`.

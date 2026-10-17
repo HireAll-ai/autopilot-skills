@@ -152,7 +152,7 @@ a status change; the tracker follows the workspace's status from Conductor on it
   Decisions: <calls made autonomously>
   Checks:    typecheck ✓ | tests <N ✓ | none: why> | review <reviewers ✓> | browser <qa ✓ | e2e N✓ M✗ | n/a>
              gates that did NOT run: <none | which + why>
-  Video:     <paths | gif in PR | attached to <KEY>: N | n/a: why>
+  Video:     <paths | gif in PR>[ · attached to <KEY>: N] | n/a: why
   Risks:     <open questions, blockers>
   Follow-ups: <N proposed below | none>
 

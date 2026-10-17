@@ -207,14 +207,17 @@ node "$(claude plugin root autopilot)/lib/record-e2e.mjs" scenario.json \
     && node ~/.autopilot/playwright/node_modules/playwright/cli.js install chromium
   ```
 
-  Chromium goes to Playwright's shared browser cache (`~/Library/Caches/ms-playwright` on a Mac,
-  `~/.cache/ms-playwright` on Linux), where a build that's already there is reused. Not found, or none
-  found can start Chromium → the recorder exits **2** and prints the install command: with `--video`
-  the agent runs it and re-runs, otherwise (or when that fails) the e2e step falls back to the
-  non-video browser pass. Exit **3** = scenario/usage error (fix + re-run, no fallback).
+  Chromium goes to Playwright's shared browser cache (`PLAYWRIGHT_BROWSERS_PATH` when set, else
+  `~/Library/Caches/ms-playwright` on a Mac, `~/.cache/ms-playwright` on Linux), where a build that's
+  already there is reused. Not found, or none found can start Chromium and record → the recorder exits
+  **2** and prints one install command (or, when the system lacks Chromium's libraries, the
+  `install-deps` to run as root): with `--video` the agent runs it and re-runs once, otherwise (or when
+  that fails) the e2e step falls back to the non-video browser pass. Exit **3** = scenario/usage error
+  (fix + re-run, no fallback).
 - **Backlog**: with `tracker.type: "backlog"` and a `<KEY>`, each video (mp4, else webm) is attached to
   the issue — `attach_video` hands out a one-time upload URL, `curl -fsS -T <file> '<uploadUrl>'` sends
-  it — whatever `qa.video.surface` says.
+  it — whatever `qa.video.surface` says. A brief with the tracker's `Video:` line counts as `--video`
+  until the tracker passes the flag itself.
 - **Surfacing** (`qa.video.surface`): `context` → artifact under `.context/` referenced in the handoff
   (renders in the Conductor chat; gif previews inline); `pr-gif` → a committed gif referenced by raw
   URL in the PR body (GitHub can't embed API-uploaded video); `both`; `none`.
