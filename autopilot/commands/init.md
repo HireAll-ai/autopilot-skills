@@ -53,13 +53,13 @@ Same loader as the other commands, minus the init-marker check (this command wri
 ## Step 3 — backlog tracker (skip with `--skip-backlog`)
 
 The **backlog** tracker (ai-backlog — hosted, or local on the operator's machine) is the tracker: its
-issues open new Conductor workspaces that start with `/autopilot:autopilot` (size XS–S) or
+issues open new Constructor workspaces that start with `/autopilot:autopilot` (size XS–S) or
 `/autopilot:autodev` (M and up) — which only work in a repo this command has initialized — and
 `/autodev` / `/autoship` key their commits on its issues, move them, and file follow-ups
 (`lib/follow-ups.md`) into it. One repo can hold several
 projects (a monorepo's sales / marketing / admin areas); each says which part of the repo it covers.
 
-**Repo root** — the main checkout, which Conductor workspaces are worktrees of (not this worktree):
+**Repo root** — the main checkout, which Constructor workspaces are worktrees of (not this worktree):
 `git worktree list --porcelain | sed -n '1s/^worktree //p'`.
 
 1. **Reachable?** The `mcp__backlog__*` tools must resolve (the server name the operator registered;

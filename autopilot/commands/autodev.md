@@ -51,7 +51,7 @@ is the repo's, not yours:
 
 No key (tracker `none`, or optional and absent) → drop the key parts; never a dangling `: ` or `Refs:`.
 
-**Preflight.** On `<base>` → **STOP** and ask to branch first (in Conductor: a fresh workspace),
+**Preflight.** On `<base>` → **STOP** and ask to branch first (in Constructor: a fresh workspace),
 suggesting a name from `.git.branchPattern`: `{key}` = `<KEY>`, `{key_lower}` = `<KEY>` lower-cased
 (`pos-42`), `{slug}` = a short kebab-case summary. Find the key in a branch name case-insensitively —
 `pos-42-…` carries `POS-42`. A workspace started from a backlog issue opens with this command, the
@@ -137,7 +137,7 @@ under `conventional`, in a temp file; `gh pr create --draft --base <base> --titl
 --body-file <tmp>`. Re-run → push and `gh pr edit` the existing PR instead of opening a second. No
 manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to ready. Tracker
 `backlog` with a `<KEY>`: comment the draft PR URL on the issue (`<mcp>__add_comment`) — a comment, not
-a status change; the tracker follows the workspace's status from Conductor on its own.
+a status change; the tracker follows the workspace's status from Constructor on its own.
 
 ## Handoff — print, then STOP
 

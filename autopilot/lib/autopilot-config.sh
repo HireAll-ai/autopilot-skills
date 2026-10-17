@@ -219,7 +219,7 @@ _backlog_mcp() {
 #   down <url> <code>     the tracker configured above gave no answer (000), or not as the tracker
 #   unusable              a backlog MCP server is registered with no url detect can use, and nothing else answered
 # and nothing when none is configured and no local one runs. The tracker knows a repo by its main
-# checkout, the root Conductor workspaces are worktrees of.
+# checkout, the root Constructor workspaces are worktrees of.
 _detect_backlog() {
   local root mcp mcp_url="" url configured="" headers="" out code
   # the tracker's address: no credentials, query or /mcp in it — it is printed into the draft
