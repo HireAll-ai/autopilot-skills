@@ -5,8 +5,8 @@ A Claude Code plugin marketplace for **autopilot** — project-independent auton
 Every run first checks that the task is still relevant — not already on the base branch, in flight
 elsewhere, closed or retracted in the tracker — and asks when in doubt.
 
-- **`/autodev`** — plan → implement → test → local quality gate (+ opt-in `--e2e`, recorded to video) →
-  **draft PR**, then STOP for verification. Never ships.
+- **`/autodev`** — plan → implement → test → local quality gate (+ opt-in `--e2e`, on video with
+  `--video`) → **draft PR**, then STOP for verification. Never ships.
 - **`/autoship`** — flip the draft to ready → loop the auto-reviewer to its pass bar → required checks
   green → repo-aware merge → deploy canary → optional `--qa`/`--e2e` → move the ticket to the ship status.
   Ships every PR the chat opened, across repos — each under its own repo's config.
@@ -40,9 +40,10 @@ Preview the autodetect for the current repo without writing:
 
 ## Video recording (opt-in)
 
-`--e2e` runs can be recorded (Playwright → mp4 for the chat, gif for the PR). Playwright + ffmpeg are
-soft deps — without them the recorder degrades (falls back to the non-video pass, or keeps `.webm`).
-See the plugin README.
+`--e2e` runs can be recorded (Playwright → mp4 for the chat, gif for the PR, and the video attached to
+the backlog issue) — `--video` for one run, `qa.video.enabled` for every run. Playwright + ffmpeg are
+soft deps — installed once in `~/.autopilot/playwright`, Playwright survives plugin updates; without them
+the recorder degrades (falls back to the non-video pass, or keeps `.webm`). See the plugin README.
 
 ## Layout
 

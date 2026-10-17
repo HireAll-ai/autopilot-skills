@@ -1,7 +1,7 @@
 ---
 description: Full autonomous cycle, no verification stop — /autodev (relevance check → plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). Takes any task — no scope or risk filter; the merge gates still apply. Project-independent: reads .claude/autopilot.config.json.
-argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [deploy-url] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
+argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [--video] [deploy-url] [--reconfigure]"
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__attach_video
 ---
 
 # /autopilot — feature → merged → deployed, in one run
@@ -63,6 +63,9 @@ look after the fact.
 - `--e2e` — opt-in scenario browser e2e (off by default), passed through to **both** phases: the local
   fix-loop e2e in `/autodev` (Done #4) and the post-deploy report-only e2e in `/autoship` (Step 5.6).
   With `.qa.video.enabled`, both record video.
+- `--video` — both e2e runs on video even when `.qa.video.enabled` is off (implies `--e2e`), passed
+  through to both phases like `--e2e`; with tracker `backlog` and a `<KEY>`, each video is attached to
+  the issue.
 - deploy URL — passed through to `/autoship` (defaults to `.deploy.urls.client`).
 - `--reconfigure` — re-run the config interview.
 
@@ -78,12 +81,13 @@ look after the fact.
    rules (`.rules.docs`), testing strategy, mandatory local browser QA for UI features. Its Step 0.5
    relevance check runs even with `--preloaded`; the operator closing or stopping the task there ends
    the whole run — no PR, no `/autoship`.
-   **Pass `--e2e` through** if the user did — autodev then runs the local fix-loop e2e
-   (recorded when video is enabled).
+   **Pass `--e2e` and `--video` through** if the user did — autodev then runs the local fix-loop e2e
+   (recorded with `--video` or when video is enabled).
 2. **Invoke the `autopilot:autoship` skill** with **`--preloaded`**, **the URL of every PR step 1
    opened** (one, or one per repo when the task spans repos), the deploy URL and **`--qa`** (omit
-   `--qa` only if the user passed `--no-qa`), plus **`--e2e`** if the user passed it. Naming the PRs
-   keeps `/autoship` to this task — drafts opened earlier in the chat still await a human.
+   `--qa` only if the user passed `--no-qa`), plus **`--e2e`** and **`--video`** if the user passed
+   them. Naming the PRs keeps `/autoship` to this task — drafts opened earlier in the chat still await
+   a human.
    **No overrides** — every hard gate applies: auto-reviewer at `.review.passBar` + zero unresolved threads, full CI green,
    template-complete PR body, clean canary, QA without blocking regressions, and only then the ticket
    → `.tracker.shipStatus`.
