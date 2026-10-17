@@ -11,6 +11,7 @@
 #   autopilot-config.sh dump                 # cat the config JSON
 #   autopilot-config.sh get <jqfilter> [def] # print a value (raw); [def] if null/missing
 #   autopilot-config.sh detect               # print an autodetected DRAFT config to stdout
+#   autopilot-config.sh backlog              # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 #   autopilot-config.sh validate [file]      # validate a config against the schema
 #   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure) → detect + exit 3
 #   autopilot-config.sh load [--reconfigure]    # init marker check (exit 4 if missing), then ensure
@@ -154,16 +155,104 @@ _detect_health_url() {
     | head -1
 }
 
-# detect the local backlog tracker (best effort, 1s timeout): prints "up" plus the keys of the
-# projects bound to this repo (a monorepo can have several), nothing when the tracker isn't running.
-# The tracker knows a repo by its main checkout, the root Conductor workspaces are worktrees of.
+# is the repo's .mcp.json `backlog` server approved on this machine? Only the operator's own word
+# counts — enabledMcpjsonServers / enableAllProjectMcpServers in the user's settings, the repo's
+# settings.local.json (not committed) or the project's entry in ~/.claude.json; a rejection
+# (disabledMcpjsonServers) anywhere wins. Unlike Claude Code in a trusted folder, the repo's committed
+# settings.json can't approve the repo's own server here: a cloned repo would point detect anywhere.
+_mcpjson_approved() {
+  local root="${1-}" config="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" f
+  local user="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" mine="$REPO_ROOT/.claude/settings.local.json"
+  local named='if type == "string" then [.] elif type == "array" then . else [] end | any(. == "backlog")'
+  local rejects="(.disabledMcpjsonServers | $named)"
+  local approves="(.enableAllProjectMcpServers == true) or (.enabledMcpjsonServers | $named)"
+  local project='(.projects[$a] // .projects[$b] // {})'
+  for f in "$user" "$mine" "$REPO_ROOT/.claude/settings.json"; do
+    if [ -f "$f" ] && jq -e "$rejects" "$f" >/dev/null 2>&1; then return 1; fi
+  done
+  if [ -f "$config" ] && jq -e --arg a "$REPO_ROOT" --arg b "$root" "$project | $rejects" "$config" >/dev/null 2>&1; then return 1; fi
+  for f in "$user" "$mine"; do
+    if [ -f "$f" ] && jq -e "$approves" "$f" >/dev/null 2>&1; then return 0; fi
+  done
+  [ -f "$config" ] && jq -e --arg a "$REPO_ROOT" --arg b "$root" "$project | $approves" "$config" >/dev/null 2>&1
+}
+
+# the operator's backlog MCP server as Claude Code resolves it: the server named `backlog` (the name
+# /autopilot:init registers) from local scope (this project in ~/.claude.json — the worktree or its main
+# checkout <root>), else the repo's .mcp.json once approved (above), else user scope. Prints
+# {url, headers}; url is null when the server has none detect can use (stdio, a proxy command).
+# ${VAR} / ${VAR:-default} expand for BACKLOG_* and AUTOPILOT_* names only: Claude Code keeps other
+# credentials from remote servers by lists of its own, so any other name takes its default or stays
+# as written, as an unset one does in Claude Code.
+_backlog_mcp() {
+  local root="${1-}" config="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" server=""
+  if [ -f "$config" ]; then
+    server="$(jq -c --arg a "$REPO_ROOT" --arg b "$root" \
+      '.projects[$a].mcpServers.backlog // .projects[$b].mcpServers.backlog // empty' "$config" 2>/dev/null || true)"
+  fi
+  if [ -z "$server" ] && [ -f "$REPO_ROOT/.mcp.json" ] && _mcpjson_approved "$root"; then
+    server="$(jq -c '.mcpServers.backlog // empty' "$REPO_ROOT/.mcp.json" 2>/dev/null || true)"
+  fi
+  if [ -z "$server" ] && [ -f "$config" ]; then
+    server="$(jq -c '.mcpServers.backlog // empty' "$config" 2>/dev/null || true)"
+  fi
+  [ -n "$server" ] || return 0
+  printf '%s' "$server" | jq -c '
+    def expand: gsub("\\$\\{(?<n>[A-Za-z_][A-Za-z0-9_]*)(?<d>:-[^}]*)?\\}";
+      . as $m
+      | if ($m.n | test("^(BACKLOG|AUTOPILOT)_")) and ($ENV | has($m.n)) then $ENV[$m.n]
+        elif $m.d != null then $m.d[2:]
+        else "${\($m.n)}" end);
+    def clean: gsub("[\r\n]"; "");
+    objects
+    | { url: (if (.url | type) == "string" then .url | expand else null end),
+        headers: ((.headers | objects) // {} | with_entries(.key |= clean | .value |= (tostring | expand | clean)))
+      }' 2>/dev/null || true
+}
+
+# detect the backlog tracker (best effort, 5s timeout) where the operator's Claude Code reaches it:
+# AUTOPILOT_BACKLOG_URL, else the url of the `backlog` MCP server, with its headers (a hosted tracker
+# wants its token; AUTOPILOT_BACKLOG_TOKEN replaces the one there), else a local tracker at
+# http://127.0.0.1:4400. Prints:
+#   up <keys>             it answered: the keys of the projects bound to this repo (a monorepo can have several)
+#   refused <url> <code>  it answered 401 (no token for it, or a wrong one) or 403 (no access, or a host it doesn't answer on)
+#   down <url> <code>     the tracker configured above gave no answer (000), or not as the tracker
+#   unusable              a backlog MCP server is registered with no url detect can use, and nothing else answered
+# and nothing when none is configured and no local one runs. The tracker knows a repo by its main
+# checkout, the root Conductor workspaces are worktrees of.
 _detect_backlog() {
-  local root out
-  root="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+  local root mcp mcp_url="" url configured="" headers="" out code
+  # the tracker's address: no credentials, query or /mcp in it — it is printed into the draft
+  local base='sub("[?#].*$"; "") | sub("^(?<s>[A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@"; "\(.s)") | sub("/+$"; "") | sub("/mcp$"; "")'
+  root="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')" || true
   [ -n "$root" ] && command -v curl >/dev/null 2>&1 || return 0
-  out="$(curl -fsS --max-time 1 -G "${AUTOPILOT_BACKLOG_URL:-http://127.0.0.1:4400}/api/projects" \
-      --data-urlencode "repoPath=$root" 2>/dev/null)" || return 0
-  printf 'up %s' "$(printf '%s' "$out" | jq -r 'map(.key) | join(" ")' 2>/dev/null)"
+  mcp="$(_backlog_mcp "$root")"
+  [ -z "$mcp" ] || mcp_url="$(printf '%s' "$mcp" | jq -r ".url // empty | $base")"
+  if [ -n "${AUTOPILOT_BACKLOG_URL:-}" ]; then url="$(printf '%s' "$AUTOPILOT_BACKLOG_URL" | jq -Rr "$base")"; configured=1
+  elif [ -n "$mcp_url" ]; then url="$mcp_url"; configured=1
+  else url="http://127.0.0.1:4400"; fi
+  # The MCP server's headers go along only to its own tracker; the token from the environment, read
+  # by jq itself, replaces its Authorization and keeps the rest (X-Backlog-Org picks the organization).
+  if [ -n "$mcp_url" ] && [ "$mcp_url" = "$url" ]; then
+    headers="$(printf '%s' "$mcp" | jq -r '($ENV.AUTOPILOT_BACKLOG_TOKEN // "") as $t | .headers | to_entries[]
+      | select($t == "" or (.key | ascii_downcase) != "authorization")
+      | if .value == "" then "\(.key);" else "\(.key): \(.value)" end')"   # curl drops "Key:", sends "Key;" empty
+  fi
+  [ -z "${AUTOPILOT_BACKLOG_TOKEN:-}" ] || headers="$headers"$'\n'"Authorization: Bearer $AUTOPILOT_BACKLOG_TOKEN"
+  # Headers reach curl on stdin, one per line — in argv `ps` would show the token. -q: no ~/.curlrc.
+  out="$(printf '%s\n' "$headers" | curl -q -sS --max-time 5 -G -H @- -w '\n%{http_code}' \
+      "$url/api/projects" --data-urlencode "repoPath=$root" 2>/dev/null)" || true
+  code="${out##*$'\n'}"
+  case "$code" in
+    2??)
+      if out="$(printf '%s' "${out%$'\n'*}" | jq -er 'select(type == "array") | map(.key) | join(" ")' 2>/dev/null)"; then
+        printf 'up %s' "$out"; return 0
+      fi ;;
+    401|403) printf 'refused %s %s' "$url" "$code"; return 0 ;;
+  esac
+  if [ -n "$configured" ]; then printf 'down %s %s' "$url" "${code:-000}"
+  elif [ -n "$mcp" ]; then printf 'unusable'
+  fi
 }
 
 _cmd_detect() {
@@ -183,10 +272,11 @@ _cmd_detect() {
     --arg backlog "${backlog:-}" '
     {
       version: 1,
-      tracker: (($backlog | ltrimstr("up") | split(" ") | map(select(. != ""))) as $keys |
-        if ($backlog | startswith("up")) then
-        # one bound project: its key is the default; several or none: init Step 3 settles it.
-        { type: "backlog", mcp: "mcp__backlog", keyPrefix: (if ($keys | length) == 1 then $keys[0] else "" end),
+      tracker: (($backlog | split(" ") | map(select(. != ""))) as $w |
+        if $w[0] == "up" or $w[0] == "refused" then
+        # one bound project: its key is the default; several, none or unknown: init Step 3 settles it.
+        { type: "backlog", mcp: "mcp__backlog",
+          keyPrefix: (if $w[0] == "up" and ($w | length) == 2 then $w[1] else "" end),
           keyRequired: false, autoCreateIssue: false, shipStatus: "done", shipStatusVia: [], followUps: "ask" }
         else {
         type: "none",
@@ -218,8 +308,20 @@ _cmd_detect() {
         prTemplate: ".github/pull_request_template.md"
       },
       _note: ("AUTODETECTED DRAFT — confirm/fill tracker (type,mcp,shipStatus), review.gate, deploy.urls and deploy.verify with the developer, then write to .claude/autopilot.config.json and git add it."
-        + (if ($backlog | startswith("up")) then
-            (($backlog | ltrimstr("up ")) as $k | if $k != "" then " Backlog projects bound to this repo: \($k) — pick the default one for keyPrefix." else " The backlog tracker runs but has no project for this repo yet — /autopilot:init Step 3 binds or creates them." end)
+        + (($backlog | split(" ") | map(select(. != ""))) as $w |
+          if $w[0] == "up" then
+            ($w[1:] | join(" ")) as $k | if $k != "" then " Backlog projects bound to this repo: \($k) — pick the default one for keyPrefix." else " The backlog tracker runs but has no project for this repo yet — /autopilot:init Step 3 binds or creates them." end
+          elif $w[0] == "refused" then
+            " The backlog tracker at \($w[1]) refused autodetect (HTTP \($w[2])): "
+            + (if $w[2] == "403" then "no access for that token, or a host it does not answer on (a hosted tracker answers only on its public URL)"
+               else "no token for it, or a wrong one — AUTOPILOT_BACKLOG_TOKEN when set, else the Authorization header of the backlog MCP server (one signed in with OAuth keeps its token to Claude Code; a ${VAR} there expands only for BACKLOG_* and AUTOPILOT_* names)" end)
+            + ". Its projects are unknown here — /autopilot:init Step 3 binds them through the MCP tools."
+          elif $w[0] == "down" then
+            " A backlog tracker is configured at \($w[1]) (the backlog MCP server, or AUTOPILOT_BACKLOG_URL) but "
+            + (if $w[2] == "000" then "gave no answer" elif ($w[2] | startswith("3")) then "redirects (HTTP \($w[2])) — register the URL it redirects to" else "answered HTTP \($w[2]), not as the tracker" end)
+            + ", so tracker is none — check that it runs and its URL, then detect again."
+          elif $w[0] == "unusable" then
+            " A backlog MCP server is registered, but with no http URL detect can use (stdio, a proxy command), so tracker is none — set AUTOPILOT_BACKLOG_URL and AUTOPILOT_BACKLOG_TOKEN, then detect again."
           else "" end))
     }'
 }
@@ -271,8 +373,9 @@ case "$cmd" in
   dump)     _cmd_dump ;;
   get)      _cmd_get "$@" ;;
   detect)   _cmd_detect ;;
+  backlog)  _detect_backlog; echo ;;
   validate) _cmd_validate "$@" ;;
   ensure)   _cmd_ensure "$@" ;;
   load)     _cmd_load "$@" ;;
-  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|validate [file]|ensure [--reconfigure]|load [--reconfigure]}" >&2; exit 2 ;;
+  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|backlog|validate [file]|ensure [--reconfigure]|load [--reconfigure]}" >&2; exit 2 ;;
 esac

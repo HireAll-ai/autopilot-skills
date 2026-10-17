@@ -20,7 +20,7 @@ Every repo must be initialized once before the other commands run (they check th
 1. verifies **gstack** is installed (installs it if missing) — the QA steps (review/canary when
    configured) and the bootstraps delegate to gstack skills (`/qa`, `/design-consultation`, `/document-generate`, …);
 2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
-3. makes the local **backlog** tracker (below) the repo's tracker — binds its projects (several per
+3. makes the **backlog** tracker (below) the repo's tracker — binds its projects (several per
    repo: a monorepo's sales / marketing / admin areas, each with a scope) and switches the config off
    Linear / Jira / GitHub;
 4. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
@@ -31,14 +31,24 @@ Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs`.
 
 ## Backlog tracker + follow-ups
 
-The local [ai-backlog](https://github.com/gitEventyr/ai-backlog) tracker is the default tracker
-(`tracker.type: "backlog"`; Linear / Jira / GitHub still work). It serves its own MCP server —
-register it once per machine:
+The [ai-backlog](https://github.com/gitEventyr/ai-backlog) tracker is the default tracker
+(`tracker.type: "backlog"`; Linear / Jira / GitHub still work), hosted or local. It serves its own MCP
+server — register it once per machine, a hosted tracker with its token:
 
 ```bash
-claude mcp add --transport http --scope user backlog http://127.0.0.1:4400/mcp
-codex mcp add backlog --url http://127.0.0.1:4400/mcp      # Codex sessions
+claude mcp add --transport http --scope user backlog https://<tracker>/mcp \
+  --header "Authorization: Bearer <token>"
+codex mcp add backlog --url https://<tracker>/mcp --bearer-token-env-var BACKLOG_TOKEN   # Codex
+# a local tracker (corepack pnpm start in ai-backlog): http://127.0.0.1:4400/mcp, no token
 ```
+
+The config autodetect finds the tracker through Claude Code's registration: it asks the `backlog`
+server's URL, with its headers, which projects are bound to the repo — local scope, then the repo's
+`.mcp.json` only once you approved it on this machine (your settings, `.claude/settings.local.json`;
+never the repo's committed `settings.json`), then user scope. In its URL and headers `${VAR}` expands
+for `BACKLOG_*` and `AUTOPILOT_*` names only. `AUTOPILOT_BACKLOG_URL` overrides the URL and
+`AUTOPILOT_BACKLOG_TOKEN` the token — what a Codex session needs, since detect doesn't read Codex's
+config; with none of these, it tries `http://127.0.0.1:4400`.
 
 - **Projects, several per repo.** A backlog project points at one repo and says which part of it it
   covers (`scope`); a monorepo usually has several (plurex: sales, marketing, admin).
@@ -78,9 +88,10 @@ ask stop instead of building. Procedure: [`lib/relevance.md`](lib/relevance.md).
 On the first `/autodev` (or `/autopilot`) in a repo with no config, Step 0.0 autodetects and asks you
 to confirm/fill the gaps, then writes + `git add`s `.claude/autopilot.config.json`. Autodetected:
 package-manager commands (lockfile + `package.json` scripts), base branch + protection
-(`gh api …/branches/<base>/protection`), ticket prefix and commit style (commit history), and a
-health/deploy URL. You confirm the rest: tracker type + MCP + ship status, review gate, deploy URLs,
-whether to enable video. Re-run any time with `--reconfigure`.
+(`gh api …/branches/<base>/protection`), ticket prefix and commit style (commit history), a
+health/deploy URL, and the backlog tracker with the projects bound to the repo (through the `backlog`
+MCP server's registration — when it can't list them, the draft's `_note` says why). You confirm the
+rest: tracker type + MCP + ship status, review gate, deploy URLs, whether to enable video. Re-run any time with `--reconfigure`.
 
 The commands load it with **one** call at Step 0.0 — `autopilot-config.sh load` checks the init marker
 (exit 4 if missing) and prints the config (exit 0) or an autodetected draft (exit 3) to stdout, so the
@@ -92,6 +103,7 @@ Preview / inspect via the loader (resolve the plugin dir with `claude plugin roo
 ```bash
 PLUGIN="$(claude plugin root autopilot)"     # e.g. ~/.claude/plugins/.../autopilot
 "$PLUGIN/lib/autopilot-config.sh" detect      # print an autodetected draft
+"$PLUGIN/lib/autopilot-config.sh" backlog     # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 "$PLUGIN/lib/autopilot-config.sh" validate     # check the written config
 "$PLUGIN/lib/autopilot-config.sh" get '.git.baseBranch'
 ```
