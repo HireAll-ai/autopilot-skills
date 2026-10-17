@@ -2,9 +2,9 @@
 // record-e2e.mjs — run one browser scenario with Playwright and record it to video.
 //
 // Portable, gstack-independent (gstack's `browse` daemon can't record video). Used by the
-// --e2e step of /autodev and /autoship when qa.video.enabled is true: the agent derives a
-// scenario, writes it as JSON, and invokes this runner, which walks the steps with
-// recordVideo on and leaves a .webm (+ .mp4/.gif when ffmpeg is present).
+// --e2e step of /autodev and /autoship when the run is on video (--video, or qa.video.enabled):
+// the agent derives a scenario, writes it as JSON, and invokes this runner, which walks the
+// steps with recordVideo on and leaves a .webm (+ .mp4/.gif when ffmpeg is present).
 //
 // Usage:
 //   node record-e2e.mjs <scenario.json|-> [--out-dir DIR] [--base-url URL]
@@ -27,12 +27,22 @@
 //       { "wait": 500 }                              // ms
 //     ] }
 //
+// Playwright is looked up, in order, from: the project under test (the cwd — its own Playwright,
+// often with its browsers installed), the stable install outside the plugin cache
+// ($AUTOPILOT_PLAYWRIGHT_DIR, default ~/.autopilot/playwright — it survives plugin updates, and
+// exit 2 says how to install there), then this script's own directory (the plugin cache, wiped on
+// every plugin update). The first one that can start Chromium and record records.
+//
 // Exit codes: 0 = every step passed; 1 = a step failed (video still saved); 2 = Playwright
-// unavailable → the caller falls back to the non-video browser pass (e2e never hard-blocked by a
-// missing recorder); 3 = usage / scenario error (bad flags, missing/unparseable scenario, no
-// steps) → FIX the scenario and re-run; do NOT fall back and do NOT mark the e2e green.
+// unavailable (not found, or none found can start Chromium and record) → install it as the message
+// says, or the caller falls back to the non-video browser pass (e2e never hard-blocked by a missing
+// recorder); 3 = usage / scenario error (bad flags, missing/unparseable scenario, no steps, a bad
+// viewport) → FIX the scenario and re-run; do NOT fall back and do NOT mark the e2e green.
 import { readFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 
 // ---- args -----------------------------------------------------------------------------
@@ -76,41 +86,81 @@ const baseUrl = opts.baseUrl || scenario.baseUrl || '';
 const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
 if (steps.length === 0) { console.error('record-e2e: scenario has no steps'); process.exit(3); }
 
-// ---- resolve Playwright (soft dependency) ---------------------------------------------
-let chromium;
-try {
-  ({ chromium } = await import('playwright'));
-} catch {
-  try { ({ chromium } = await import('playwright-core')); } catch {
-    console.error(
-      'record-e2e: Playwright not found. Install it once:\n' +
-      '  npm i playwright && npx playwright install chromium   # in your project, or the autopilot plugin dir\n' +
-      'Falling back: the caller runs the non-video browser pass instead.',
-    );
-    process.exit(2);
-  }
-}
-
 // ---- output paths ---------------------------------------------------------------------
 const outDir = path.resolve(opts.outDir);
-mkdirSync(outDir, { recursive: true });
 const webmPath = path.join(outDir, `${name}.webm`);
 const viewport = scenario.viewport || { width: 1000, height: 700 };
+const px = (n) => Number.isInteger(n) && n > 0;
+if (!px(viewport.width) || !px(viewport.height)) { console.error('record-e2e: viewport must be { "width": <px>, "height": <px> }'); process.exit(3); }
+mkdirSync(outDir, { recursive: true });
+// This run's files only: a run that records nothing must not hand over the last run's video as its own.
+for (const ext of ['webm', 'mp4', 'gif']) rmSync(path.join(outDir, `${name}.${ext}`), { force: true });
+
+// ---- resolve Playwright (soft dependency) ---------------------------------------------
+const stableDir = path.resolve(
+  (process.env.AUTOPILOT_PLAYWRIGHT_DIR || path.join(os.homedir(), '.autopilot', 'playwright')).replace(/^~(?=$|\/)/, os.homedir()),
+);
+const places = [
+  createRequire(path.join(process.cwd(), 'package.json')),
+  createRequire(path.join(stableDir, 'package.json')),
+  createRequire(import.meta.url),
+];
+// Playwright puts its advice in a box under the first line of an error, and that line may be empty.
+const reason = (e) => String(e?.message ?? e).replace(/[╔╗╚╝═║]/g, '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2).join(' ').slice(0, 300);
+const tried = [];   // what was found but couldn't record, with why
+let browser, context, page, video;
+for (const require of places) {
+  // One engine per place: the first of these it reaches. @playwright/test re-exports the browsers;
+  // under pnpm it is often the only one a project can reach.
+  let pkg, entry;
+  for (const candidate of ['playwright', 'playwright-core', '@playwright/test']) {
+    try { entry = require.resolve(candidate); pkg = candidate; break; } catch {}
+  }
+  if (!entry || tried.some((t) => t.entry === entry)) continue;
+  let launched;
+  try {
+    const mod = await import(pathToFileURL(entry).href);
+    const chromium = mod.chromium ?? mod.default?.chromium;
+    if (!chromium) throw new Error('it exports no chromium');
+    launched = await chromium.launch({ headless: !opts.headed, timeout: 60_000 });
+    // Recording needs Playwright's own ffmpeg too: one that starts Chromium but can't record is no better.
+    context = await launched.newContext({ viewport, recordVideo: { dir: outDir, size: viewport } });
+    page = await context.newPage();
+    video = page.video();
+    browser = launched;
+    console.error(`record-e2e: recording with ${pkg} from ${path.dirname(entry)}`);
+    break;
+  } catch (e) {
+    context = undefined;
+    try { await launched?.close(); } catch {}
+    tried.push({ pkg, entry, error: reason(e) });
+  }
+}
+if (!browser) {
+  const noLibs = tried.find((t) => /missing dependencies/i.test(t.error));
+  console.error(
+    (tried.length === 0
+      ? `record-e2e: Playwright not found (looked in the project, ${stableDir} and the plugin dir).\n`
+      : 'record-e2e: Playwright found, but none of it can record:\n' +
+        tried.map((t) => `  ${t.pkg} at ${path.dirname(t.entry)} — ${t.error}\n`).join('')) +
+    (noLibs
+      ? `The system lacks Chromium's libraries. Install them, as root: node "${path.join(path.dirname(noLibs.entry), 'cli.js')}" install-deps chromium\n`
+      : 'Install it once, outside the plugin cache so plugin updates keep it (browsers go to the shared ms-playwright cache):\n' +
+        `  npm i --prefix "${stableDir}" playwright && node "${path.join(stableDir, 'node_modules', 'playwright', 'cli.js')}" install chromium\n` +
+        '(AUTOPILOT_PLAYWRIGHT_DIR picks another directory.)\n') +
+    'Without --video the caller falls back to the non-video browser pass; with --video it runs the install above and re-runs once.',
+  );
+  process.exit(2);
+}
 
 const abs = (u) => (/^https?:\/\//.test(u) ? u : baseUrl.replace(/\/$/, '') + (u.startsWith('/') ? u : '/' + u));
 
 // ---- run ------------------------------------------------------------------------------
 const results = [];
-let browser, context, page, video;
 let ok = true;
 const deadline = Date.now() + opts.maxSeconds * 1000;
 
 try {
-  browser = await chromium.launch({ headless: !opts.headed });
-  context = await browser.newContext({ viewport, recordVideo: { dir: outDir, size: viewport } });
-  page = await context.newPage();
-  video = page.video();
-
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const label = `step ${i + 1}: ${JSON.stringify(step)}`;

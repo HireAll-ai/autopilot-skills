@@ -1,7 +1,7 @@
 ---
 description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — re-checks the ticket is still wanted, flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
-argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
+argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--video] [--reconfigure]"
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__attach_video
 ---
 
 # /autoship — ship → clean → merge → deploy → ship-status (autonomous)
@@ -33,6 +33,8 @@ Arguments (optional, any order):
   against the deployed build; with `.qa.video.enabled` the walk is **recorded to video**. Post-merge,
   so **report-only** — a failure caused by this ship surfaces a revert / fix-forward choice and
   **blocks the ticket move**; fixes are follow-up PRs, never local edits. Independent of `--qa`.
+- `--video` — record that e2e walk to video even when `.qa.video.enabled` is off; implies `--e2e`.
+  With tracker `backlog` and a `<KEY>`, each video is also attached to the issue.
 - `--reconfigure` — re-run the config interview (Step 0.0).
 - `--preloaded` — internal, passed by `/autopilot`: Step 0.0 already ran and the config is in context.
 
@@ -84,7 +86,8 @@ mid-run hunting for one:
   key is absent or the skill doesn't resolve, Step 2.1 drives the loop inline with `gh`.
 - **`.deploy.canarySkill`** (e.g. `/canary`) — Step 5.2. Missing → `curl` the changed surface directly.
 - **`.qa.qaOnlySkill`** — Step 5.5 (only with `--qa`). **`.qa.browseSkill`** — Step 5.6 (only with
-  `--e2e`). Missing → say the optional pass was skipped; never silently claim it ran.
+  `--e2e` / `--video`; a run on video needs it only as the recorder's fallback). Missing → say the
+  optional pass was skipped; never silently claim it ran.
 
 ## Non-negotiable rules (from config + the repo's own docs `.rules.docs`)
 
@@ -366,13 +369,14 @@ Only with `--qa` (else skip silently). Code is merged — **report-only** (`.qa.
 - **critical/high regression caused by this ship** → **blocks Step 6**; report + offer revert or
   fix-forward. medium/low or pre-existing → include, don't block.
 
-## Step 5.6 — Optional scenario browser e2e (`--e2e`)
+## Step 5.6 — Optional scenario browser e2e (`--e2e`, `--video`)
 
-Only with `--e2e` (else skip silently). Otherwise **Read `${CLAUDE_PLUGIN_ROOT}/lib/e2e.md`** and
-follow its **deployed** mode against the deploy URL: 2–4 scenarios from the diff + `<KEY>` + PR body,
-recorded when `.qa.video.enabled`, **report-only** (merged code — fixes are follow-up PRs). A scenario
-failing **because of this ship** → **blocks Step 6** + offer revert or fix-forward; pre-existing
-breakage → include, don't block. Write the run into the final report.
+Only with `--e2e` or `--video` (else skip silently). Otherwise **Read `${CLAUDE_PLUGIN_ROOT}/lib/e2e.md`**
+and follow its **deployed** mode against the deploy URL: 2–4 scenarios from the diff + `<KEY>` + PR
+body, recorded with `--video` or `.qa.video.enabled` (and attached to a backlog issue), **report-only**
+(merged code — fixes are follow-up PRs). A scenario failing **because of this ship** → **blocks Step
+6** + offer revert or fix-forward; pre-existing breakage → include, don't block. Write the run into
+the final report.
 
 ## Step 6 — Report + move the ticket to the ship status
 
@@ -386,7 +390,7 @@ Print the report — one block per PR, in ship order:
   Deploy:    <env> — <verified <SHA> via <mode> | UNVERIFIED: <why>>, canary <ok | issues>   (or: deploy=none)
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
-  Video:     <path(s) | gif in PR | n/a>
+  Video:     <path(s) | gif in PR>[ · attached to <KEY>: N] | n/a: why
   Follow-ups: <N proposed in Step 7 | none>
 
   Not shipped: <owner>/<repo>#<n> — <why: stopped at Step X | depends on #m | left out: no local
@@ -417,9 +421,9 @@ Any other tracker — via the configured tracker MCP (`.tracker.mcp`, e.g. `mcp_
 4. Print the final status reached.
 
 **Guards — only transition on a clean ship:** Step 4 actually merged (real SHA) AND Step 5 canary
-didn't flag a real problem AND (if `--qa`) no blocking regression AND (if `--e2e`) no scenario failing
-because of this ship. Any PR carrying `<KEY>` stopped short → **DO NOT transition** it; report the
-blocker. Tracker MCP unavailable / key not tracked → **skip** with a one-line note, don't fail the run.
+didn't flag a real problem AND (if `--qa`) no blocking regression AND (if `--e2e`/`--video`) no
+scenario failing because of this ship. Any PR carrying `<KEY>` stopped short → **DO NOT transition**
+it; report the blocker. Tracker MCP unavailable / key not tracked → **skip** with a one-line note, don't fail the run.
 
 ## Step 7 — Follow-ups
 
@@ -437,7 +441,7 @@ holds up the ship; the operator's picks are filed, the rest is printed.
 - Pairs with `/autodev` (plan→build→test→draft-PR→verify-gate). For the no-verification single-shot
   variant see `/autopilot` (autodev + autoship back-to-back, staging QA ON by default).
 - Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on
-  strict protection. The ticket move (Step 6) and the follow-ups the operator picks (Step 7) are the
-  only places `/autoship` writes to the tracker.
+  strict protection. The e2e videos (Step 5.6, backlog), the ticket move (Step 6) and the follow-ups
+  the operator picks (Step 7) are the only places `/autoship` writes to the tracker.
 - Project-independent: all facts from `.claude/autopilot.config.json`. To share the commands
   themselves across repos, install the `autopilot` plugin: `claude plugin marketplace add HireAll-ai/autopilot-skills`.

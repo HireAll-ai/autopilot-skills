@@ -1,7 +1,7 @@
 ---
 description: Autonomous feature build that ends in a verified handoff — first checks the task is still relevant (asks when in doubt), then you decide how to plan, build and test; the command fixes what must be true when you stop — tests green per the repo's strategy, local review + browser QA done (or --e2e scenarios, optionally on video), a live preview link and a test plan, and a DRAFT PR with CI pre-warmed. Then STOPS for your verification. Never ships — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
-argument-hint: "[spec/plan file | feature description] [--e2e] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue
+argument-hint: "[spec/plan file | feature description] [--e2e] [--video] [--reconfigure]"
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__attach_video
 ---
 
 # /autodev — build it, prove it, hand it over (never ships)
@@ -18,6 +18,8 @@ Input (`$ARGUMENTS`, optional):
 - A spec/plan file path or a short feature description. Omitted → this conversation's brainstorm output.
 - `--e2e` — scenario browser e2e instead of the heuristic QA pass (one browser pass, not two),
   recorded to video when `.qa.video.enabled`.
+- `--video` — record that e2e run to video even when `.qa.video.enabled` is off; implies `--e2e`.
+  With tracker `backlog` and a `<KEY>`, each video is also attached to the issue.
 - `--reconfigure` — re-run the config interview even if a config exists.
 - `--preloaded` — internal, passed by `/autopilot`: Step 0.0 already ran, the config is in context.
 
@@ -98,9 +100,10 @@ asking.
 3. **Reviewed** — every `.review.localReviewers` entry ran on `git diff <base>...HEAD`; its
    high-confidence findings are fixed.
 4. **Browser-checked (UI changes)** — `.qa.qaOnlySkill` ran against the local dev server, scoped to
-   the touched flows, and the bugs it found are fixed and re-verified. With `--e2e`, instead: Read
-   `${CLAUDE_PLUGIN_ROOT}/lib/e2e.md` and run its **local** mode (≤3 fix attempts per scenario). A UI
-   that can't run locally, or a scenario still red, is a **blocker** in the handoff — never green.
+   the touched flows, and the bugs it found are fixed and re-verified. With `--e2e` (or `--video`),
+   instead: Read `${CLAUDE_PLUGIN_ROOT}/lib/e2e.md` and run its **local** mode (≤3 fix attempts per
+   scenario; on video with `--video` or `.qa.video.enabled`). A UI that can't run locally, or a
+   scenario still red, is a **blocker** in the handoff — never green.
 5. **Clickable** — a live preview link + `.context/testplan-<KEY>.md` (below).
 6. **Draft PR** — open, template complete, CI running.
 
@@ -149,7 +152,7 @@ a status change; the tracker follows the workspace's status from Conductor on it
   Decisions: <calls made autonomously>
   Checks:    typecheck ✓ | tests <N ✓ | none: why> | review <reviewers ✓> | browser <qa ✓ | e2e N✓ M✗ | n/a>
              gates that did NOT run: <none | which + why>
-  Video:     <paths | gif in PR | n/a>
+  Video:     <paths | gif in PR>[ · attached to <KEY>: N] | n/a: why
   Risks:     <open questions, blockers>
   Follow-ups: <N proposed below | none>
 
@@ -161,7 +164,8 @@ a status change; the tracker follows the workspace's status from Conductor on it
                   1. <do X → expect Y>   2. <…>   3. <…>
     Not verified locally: <bullets | none>
 
-  Looks right → /autoship  (--qa: QA the deployed build; --e2e: scenario e2e on the deployed env)
+  Looks right → /autoship  (--qa: QA the deployed build; --e2e: scenario e2e on the deployed env;
+                           --video: that e2e on video)
 ```
 
 Then, unless `--preloaded` (`/autopilot` proposes them once at its end), **Read

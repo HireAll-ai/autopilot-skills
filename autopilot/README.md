@@ -62,6 +62,8 @@ config; with none of these, it tries `http://127.0.0.1:4400`.
 - `/autodev` takes `<KEY>` from the `Tracker issue: <KEY>` line and comments the draft PR on the issue;
   `/autoship` Step 6 sets it to `done` (found by key, or by the PR branch through the tracker's
   workspace links).
+- E2e videos land on the issue: every video an `--e2e` run records (`--video`, or `qa.video.enabled`)
+  is attached with the tracker's `attach_video` and plays on the issue's page (below).
 
 **Follow-ups** (`tracker.followUps`, default `ask`): at the end of `/autodev`, `/autoship` and — once —
 `/autopilot`, the run drafts follow-up tasks from what it deliberately left undone (deferred scope,
@@ -183,8 +185,10 @@ the consuming repo's `.claude/settings.json` → `permissions.allow` (e.g. `"mcp
 ## Video recording (opt-in)
 
 The `--e2e` procedure (scenarios, recorder exit codes, fix-loop vs report-only, video surfacing) lives in
-[`lib/e2e.md`](lib/e2e.md) and is only read when `--e2e` is passed. When `qa.video.enabled` is true, the `--e2e` scenario walk is recorded via `lib/record-e2e.mjs`
-(standalone Playwright — independent of any project browser tooling):
+[`lib/e2e.md`](lib/e2e.md) and is only read when `--e2e` or `--video` is passed. When `qa.video.enabled`
+is true, or the run has **`--video`** (`/autodev`, `/autoship`, `/autopilot`; it implies `--e2e` and
+records that one run whatever the config says), the `--e2e` scenario walk is recorded via
+`lib/record-e2e.mjs` (standalone Playwright — independent of any project browser tooling):
 
 ```bash
 node "$(claude plugin root autopilot)/lib/record-e2e.mjs" scenario.json \
@@ -194,9 +198,26 @@ node "$(claude plugin root autopilot)/lib/record-e2e.mjs" scenario.json \
 - **Scenario** = JSON with `steps` (`goto`/`fill`/`click`/`press`/`waitFor`/`expect`/`screenshot`/`wait`).
 - **Output**: a `.webm` always; `.mp4`/`.gif` when **ffmpeg** is installed (else the `.webm` is kept —
   GitHub and Chromium play webm). `--gif` adds a gif alongside the primary format.
-- **Playwright** is a soft dep (`npm i playwright && npx playwright install chromium`, in your project
-  or the plugin dir). Missing → the recorder exits **2** and the e2e step falls back to the non-video
-  browser pass. Exit **3** = scenario/usage error (fix + re-run, no fallback).
+- **Playwright** is a soft dep, looked up in the project (the cwd), then in `~/.autopilot/playwright`
+  (`AUTOPILOT_PLAYWRIGHT_DIR` picks another directory), then next to the recorder. Install it once in
+  the second — it is outside the plugin cache, so plugin updates keep it:
+
+  ```bash
+  npm i --prefix ~/.autopilot/playwright playwright \
+    && node ~/.autopilot/playwright/node_modules/playwright/cli.js install chromium
+  ```
+
+  Chromium goes to Playwright's shared browser cache (`PLAYWRIGHT_BROWSERS_PATH` when set, else
+  `~/Library/Caches/ms-playwright` on a Mac, `~/.cache/ms-playwright` on Linux), where a build that's
+  already there is reused. Not found, or none found can start Chromium and record → the recorder exits
+  **2** and prints one install command (or, when the system lacks Chromium's libraries, the
+  `install-deps` to run as root): with `--video` the agent runs it and re-runs once, otherwise (or when
+  that fails) the e2e step falls back to the non-video browser pass. Exit **3** = scenario/usage error
+  (fix + re-run, no fallback).
+- **Backlog**: with `tracker.type: "backlog"` and a `<KEY>`, each video (mp4, else webm) is attached to
+  the issue — `attach_video` hands out a one-time upload URL, `curl -fsS -T <file> '<uploadUrl>'` sends
+  it — whatever `qa.video.surface` says. A brief with the tracker's `Video:` line counts as `--video`
+  until the tracker passes the flag itself.
 - **Surfacing** (`qa.video.surface`): `context` → artifact under `.context/` referenced in the handoff
   (renders in the Conductor chat; gif previews inline); `pr-gif` → a committed gif referenced by raw
   URL in the PR body (GitHub can't embed API-uploaded video); `both`; `none`.
@@ -224,4 +245,4 @@ Both keys are optional: `url` is only needed when the bound URL isn't in the dev
 
 ## Requirements
 
-`git`, `gh`, `jq` required. `ffmpeg` optional (mp4/gif). `playwright` optional (video). `node` for the recorder.
+`git`, `gh`, `jq` required. `ffmpeg` optional (mp4/gif). `playwright` optional (video; once in `~/.autopilot/playwright`). `node` for the recorder.
