@@ -404,7 +404,7 @@ passed the guards below (a feature split across repos isn't shipped until all it
 `.tracker.type == none`.
 **`backlog`** has no workflow transitions. A PR with no `<KEY>` in its branch, title or body may still
 have an issue: the `Tracker issue:` key in this chat, else `<mcp>__list_issues` with `branch` = the PR's
-head branch (the tracker links Conductor workspaces to issues). Then `<mcp>__get_issue`; already
+head branch (the tracker links Constructor workspaces to issues). Then `<mcp>__get_issue`; already
 `.tracker.shipStatus` → skip (`already <shipStatus>` — its sync marks merged work done, so this is
 common) but still comment; else `<mcp>__update_issue` with `status: <shipStatus>`. Either way
 `<mcp>__add_comment` naming the merged PR(s) and the deploy verdict. Print the status reached.

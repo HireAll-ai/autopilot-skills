@@ -54,7 +54,7 @@ config; with none of these, it tries `http://127.0.0.1:4400`.
   covers (`scope`); a monorepo usually has several (plurex: sales, marketing, admin).
   `/autopilot:init` binds them and switches the repo's config to the backlog; keys of every bound
   project are valid, `keyPrefix` is the default one.
-- **Issues start the right command.** **Start** on an issue opens a Conductor workspace whose prompt
+- **Issues start the right command.** **Start** on an issue opens a Constructor workspace whose prompt
   is `/autopilot:autopilot` (size XS–S: ships on its own) or `/autopilot:autodev` (M and up: stops at a
   draft PR for you to verify), followed by the project, the task and its brief. The tracker estimates
   the size from the brief; anyone can override it. A repo `/autopilot:init` hasn't set up gets a plain
@@ -219,7 +219,7 @@ node "$(claude plugin root autopilot)/lib/record-e2e.mjs" scenario.json \
   it — whatever `qa.video.surface` says. A brief with the tracker's `Video:` line counts as `--video`
   until the tracker passes the flag itself.
 - **Surfacing** (`qa.video.surface`): `context` → artifact under `.context/` referenced in the handoff
-  (renders in the Conductor chat; gif previews inline); `pr-gif` → a committed gif referenced by raw
+  (renders in the Constructor chat; gif previews inline); `pr-gif` → a committed gif referenced by raw
   URL in the PR body (GitHub can't embed API-uploaded video); `both`; `none`.
 
 ## Verification handoff (`/autodev`)
