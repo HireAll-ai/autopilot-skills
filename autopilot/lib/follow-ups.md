@@ -33,7 +33,7 @@ items the operator already said no to.
 
 - **Title** — imperative, ≤70 chars.
 - **Brief** — self-contained, because it becomes the agent's prompt when the task is started later
-  (for backlog, as the first message of a new Conductor workspace): the context with file paths,
+  (for backlog, as the first message of a new Constructor workspace): the context with file paths,
   what to do, **done when**, and what not to touch. Name the PR / `<KEY>` it came from.
 - **Project** — route by scope: the backlog project whose `scope` covers the files / area the task
   touches (`apps/backend/src/sales` → the sales project). Unclear between two → the closer one, with
@@ -41,7 +41,7 @@ items the operator already said no to.
   another repo goes to that repo's projects (`list_projects` with that repo's root). Without backlog
   projects: `.tracker.keyPrefix`.
 - **Priority** — only when it's clear (a found regression is high; polish is low); else none.
-- **Size** (backlog) — XS / S / M / L / XL, honestly: it picks how the task starts in Conductor —
+- **Size** (backlog) — XS / S / M / L / XL, honestly: it picks how the task starts in Constructor —
   XS–S with `/autopilot:autopilot` (ships on its own), M+ with `/autopilot:autodev` (stops for a human
   to verify). Unsure → the larger one.
 
@@ -99,4 +99,4 @@ drop or narrow it and say so.
 
 Report line: `Follow-ups: filed SALES-12, MKT-4 · already tracked SALES-7 · already done SALES-3 ·
 in flight #12 · not picked 2` (for backlog
-issues, add each URL — it opens the issue, and **Start** there opens a new Conductor workspace).
+issues, add each URL — it opens the issue, and **Start** there opens a new Constructor workspace).

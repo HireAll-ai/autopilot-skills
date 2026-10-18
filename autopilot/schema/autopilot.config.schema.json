@@ -29,7 +29,7 @@
       "properties": {
         "type": {
           "enum": ["jira", "linear", "github", "backlog", "none"],
-          "description": "Tracker kind. 'backlog' (the default when it answers) is the ai-backlog tracker, hosted or local; its MCP server (conventionally 'mcp__backlog') is served by the tracker at <tracker>/mcp (a hosted one with its token, a local one at http://127.0.0.1:4400/mcp), and its issues start Conductor workspaces with /autopilot:autopilot or /autopilot:autodev by size. A repo can hold several backlog projects: keys of every project bound to it (list_projects with repoPath) are valid and keyPrefix is the default project for new issues. 'none' disables ticket handling."
+          "description": "Tracker kind. 'backlog' (the default when it answers) is the ai-backlog tracker, hosted or local; its MCP server (conventionally 'mcp__backlog') is served by the tracker at <tracker>/mcp (a hosted one with its token, a local one at http://127.0.0.1:4400/mcp), and its issues start Constructor workspaces with /autopilot:autopilot or /autopilot:autodev by size. A repo can hold several backlog projects: keys of every project bound to it (list_projects with repoPath) are valid and keyPrefix is the default project for new issues. 'none' disables ticket handling."
         },
         "mcp": {
           "type": "string",
@@ -291,7 +291,7 @@
             "surface": {
               "enum": ["context", "pr-gif", "both", "none"],
               "default": "context",
-              "description": "Where the artifact goes: 'context' = write to .context/ for the Conductor chat; 'pr-gif' = also embed a gif in the PR body; 'both'; 'none' = record but don't surface."
+              "description": "Where the artifact goes: 'context' = write to .context/ for the Constructor chat; 'pr-gif' = also embed a gif in the PR body; 'both'; 'none' = record but don't surface."
             },
             "dir": {
               "type": "string",

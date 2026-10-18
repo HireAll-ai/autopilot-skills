@@ -82,7 +82,7 @@ what was attached (`attached to <KEY>: 3`, next to the paths).
 Then per `.qa.video.surface`:
 
 - `context` / `both` → the mp4 (or webm) is already under `.context/` (gitignored — right for chat):
-  reference it in the handoff so it renders in the Conductor chat (prefer the gif for a guaranteed
+  reference it in the handoff so it renders in the Constructor chat (prefer the gif for a guaranteed
   inline preview).
 - `pr-gif` / `both` → include the **gif** in the PR body (or a PR comment, deployed mode). GitHub only
   renders drag-dropped video, so an API-authored body can't embed fresh video. Because `.context/` is
