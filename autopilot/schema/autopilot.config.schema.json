@@ -281,7 +281,7 @@
             "enabled": {
               "type": "boolean",
               "default": false,
-              "description": "Record video during --e2e runs."
+              "description": "Record video during every --e2e run. --video records one run even when this is false."
             },
             "format": {
               "enum": ["mp4", "gif", "webm"],
