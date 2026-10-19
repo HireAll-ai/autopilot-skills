@@ -28,7 +28,7 @@
       "description": "Issue tracker used for ticket keys and status transitions.",
       "properties": {
         "type": {
-          "enum": ["jira", "linear", "github", "backlog", "none"],
+          "enum": ["jira", "github", "backlog", "none"],
           "description": "Tracker kind. 'backlog' (the default when it answers) is the ai-backlog tracker, hosted or local; its MCP server (conventionally 'mcp__backlog') is served by the tracker at <tracker>/mcp (a hosted one with its token, a local one at http://127.0.0.1:4400/mcp), and its issues start Constructor workspaces with /autopilot:autopilot or /autopilot:autodev by size. A repo can hold several backlog projects: keys of every project bound to it (list_projects with repoPath) are valid and keyPrefix is the default project for new issues. 'none' disables ticket handling."
         },
         "mcp": {
@@ -77,7 +77,7 @@
         },
         "branchPattern": {
           "type": "string",
-          "description": "Template for feature branch names. Placeholders: {key} (tracker key as written, e.g. 'POS-42'), {key_lower} (the key lower-cased, e.g. 'pos-42' — Linear's default branch style), {slug} (short kebab-case summary). The key is found in a branch name case-insensitively either way.",
+          "description": "Template for feature branch names. Placeholders: {key} (tracker key as written, e.g. 'POS-42'), {key_lower} (the key lower-cased, e.g. 'pos-42', for all-lowercase branch names), {slug} (short kebab-case summary). The key is found in a branch name case-insensitively either way.",
           "default": "{key}-{slug}"
         },
         "commitStyle": {
