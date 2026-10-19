@@ -167,7 +167,7 @@ merge still pending. A ticket shared by several PRs moves only once all of them 
 | script | used by | what it saves |
 |---|---|---|
 | `lib/typecheck.sh` | every `<typecheck>` gate in `/autodev` + `/autoship` | runs `.commands.typecheck` at most once per working tree (cache keyed by tree hash under the per-worktree git dir), so re-asserting the gate after a no-op rebase/push is free |
-| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown |
+| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `build-id` also counts a later commit that contains the merge (`git merge-base --is-ancestor` after a fetch of the base branch — a builder that deploys every push builds the PR merged right after); `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown |
 
 `autopilot-config.sh`, `typecheck.sh` and `verify-deploy.sh` all take `AUTOPILOT_REPO=<dir>` to act
 on another checkout than the cwd — how `/autoship` handles a PR in a sibling repo without `cd`.

@@ -7,7 +7,8 @@
 #
 # Usage: [AUTOPILOT_REPO=<dir>] verify-deploy.sh <merge-sha>   # AUTOPILOT_REPO: the merged PR's checkout,
 #                                                             # when it isn't the cwd's repo
-# Exit:  0  verified — the running build is <merge-sha> (build-id) / the deploy run(s) went green (github-run)
+# Exit:  0  verified — the running build is <merge-sha> or a later commit of the base branch that
+#                      contains it (build-id) / the deploy run(s) went green (github-run)
 #        1  broken   — deploy run failed, or the build-id endpoint was unreachable the whole window
 #                      → hard STOP + revert recipe
 #        10 unverified — nothing confirmed it in time (old build still answering, no run observed,
@@ -40,13 +41,27 @@ case "$MODE" in
     URL="$(cfg '.deploy.verify.buildIdUrl')"; JQ="$(cfg '.deploy.verify.buildIdJq' '.commit')"
     RJQ="$(cfg '.deploy.verify.restartedAtJq')"
     [ -n "$URL" ] || { echo "verify-deploy: mode=build-id needs .deploy.verify.buildIdUrl" >&2; exit 2; }
-    REACHED=""; LIVE=""; BODY=""
+    BASE="$(cfg '.git.baseBranch' 'main')"
+    REACHED=""; LIVE=""; BODY=""; FETCHED=""
+    # A builder that deploys every push builds a PR merged right after ours instead: a live commit
+    # that has <merge-sha> in its history carries the merge too. Fetched once per live commit (again
+    # after a failed fetch); one git doesn't know even then is not this build, never an error.
+    contains_merge() {
+      [[ "$LIVE" =~ ^[0-9a-fA-F]{7,64}$ ]] || return 1   # a commit id: `HEAD` or `main` resolve locally
+      if [ "$FETCHED" != "$LIVE" ]; then
+        GIT_TERMINAL_PROMPT=0 git fetch origin "$BASE" -q >/dev/null 2>&1 && FETCHED="$LIVE"
+      fi
+      git merge-base --is-ancestor "$SHA" "$LIVE" >/dev/null 2>&1
+    }
     while :; do
       if BODY="$(curl -fsS --max-time 10 "$URL" 2>/dev/null)"; then
         REACHED=1
         LIVE="$(printf '%s' "$BODY" | jq -r "($JQ) // empty" 2>/dev/null || true)"
         if [ "$LIVE" = "$SHA" ] || { [ ${#LIVE} -ge 7 ] && [ "${SHA#"$LIVE"}" != "$SHA" ]; }; then
           echo "VERIFIED: $URL reports $LIVE"; exit 0
+        fi
+        if contains_merge; then
+          echo "VERIFIED: $URL reports $LIVE (contains $SHA)"; exit 0
         fi
       fi
       [ "$(date +%s)" -lt "$DEADLINE" ] || break
@@ -59,7 +74,7 @@ case "$MODE" in
         echo "COMMIT_UNKNOWN: $URL answers but the commit reads '${LIVE:-<empty>}'; restartedAt=${R:-<n/a>}"
         exit 12 ;;
     esac
-    echo "UNVERIFIED: $URL still reports $LIVE (not $SHA) after ${TIMEOUT}s"; exit 10 ;;
+    echo "UNVERIFIED: $URL still reports $LIVE (not $SHA or a commit that contains it) after ${TIMEOUT}s"; exit 10 ;;
 
   github-run)
     REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || exit 2
