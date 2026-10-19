@@ -69,7 +69,9 @@ config; with none of these, it tries `http://127.0.0.1:4400`.
 `/autopilot`, the run drafts follow-up tasks from what it deliberately left undone (deferred scope,
 report-only findings, gates that didn't run, TODOs it added), routes each to the backlog project whose
 scope covers it, sizes it (which picks its command on Start), drops duplicates (tickets in any status, work
-already on the base branch, open PRs), and asks which to file.
+already on the base branch, open PRs), and asks which to file — in Constructor's agent chat it proposes
+them with the tracker's `propose_issues` instead, which shows each as a card with Backlog / Todo buttons
+that file it with a click.
 Nothing is filed without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
 
 ## Relevance check — first, every run

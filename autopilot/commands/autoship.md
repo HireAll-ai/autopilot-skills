@@ -1,7 +1,7 @@
 ---
 description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — re-checks the ticket is still wanted, flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--video] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__attach_video
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__attach_video
 ---
 
 # /autoship — ship → clean → merge → deploy → ship-status (autonomous)

@@ -1,7 +1,7 @@
 ---
 description: Full autonomous cycle, no verification stop — /autodev (relevance check → plan → build → test → local QA (+ opt-in --e2e, video) → draft PR) flows straight into /autoship (auto-reviewer pass bar → required checks green → merge → deploy → canary), finishing with an automated QA pass (ON by default). Takes any task — no scope or risk filter; the merge gates still apply. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--no-qa] [--e2e] [--video] [deploy-url] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__attach_video
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__attach_video
 ---
 
 # /autopilot — feature → merged → deployed, in one run
