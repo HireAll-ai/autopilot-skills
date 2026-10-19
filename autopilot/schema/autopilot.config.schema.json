@@ -211,7 +211,7 @@
           "properties": {
             "mode": {
               "enum": ["build-id", "github-run", "none"],
-              "description": "'build-id' = poll buildIdUrl until it reports the merge SHA or a later commit of the base branch that contains it (the only honest check with an external builder); 'github-run' = the deploy IS a GitHub Actions run, so watch the push run for the merge SHA; 'none' = nothing can confirm it — canary anyway and report the deploy as UNVERIFIED. Absent: inferred as 'github-run' when deploy.trigger is 'github-action', else 'none'."
+              "description": "'build-id' = poll buildIdUrl until it reports the merge SHA, or a later commit that contains it and doesn't revert it (a builder that deploys every push may build the PR merged right after; the cwd repo's git decides, after a fetch of git.baseBranch) — the only honest check with an external builder; 'github-run' = the deploy IS a GitHub Actions run, so watch the push run for the merge SHA; 'none' = nothing can confirm it — canary anyway and report the deploy as UNVERIFIED. Absent: inferred as 'github-run' when deploy.trigger is 'github-action', else 'none'."
             },
             "buildIdUrl": {
               "type": "string",

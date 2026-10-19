@@ -7,12 +7,13 @@
 #
 # Usage: [AUTOPILOT_REPO=<dir>] verify-deploy.sh <merge-sha>   # AUTOPILOT_REPO: the merged PR's checkout,
 #                                                             # when it isn't the cwd's repo
-# Exit:  0  verified — the running build is <merge-sha> or a later commit of the base branch that
-#                      contains it (build-id) / the deploy run(s) went green (github-run)
+# Exit:  0  verified — the running build is <merge-sha> or a later commit that contains it and
+#                      doesn't revert it (build-id) / the deploy run(s) went green (github-run)
 #        1  broken   — deploy run failed, or the build-id endpoint was unreachable the whole window
 #                      → hard STOP + revert recipe
 #        10 unverified — nothing confirmed it in time (old build still answering, no run observed,
-#                      mode none). NOT a failure: the ship landed, report it as UNVERIFIED.
+#                      mode none), or the live build reverts it. NOT a failure: the ship landed,
+#                      report it as UNVERIFIED.
 #        12 build-id endpoint answers but the commit reads unknown/empty; the last response's
 #                      restartedAt value (if .deploy.verify.restartedAtJq is set) is printed so the
 #                      caller can compare it to the merge time.
@@ -44,14 +45,31 @@ case "$MODE" in
     BASE="$(cfg '.git.baseBranch' 'main')"
     REACHED=""; LIVE=""; BODY=""; FETCHED=""
     # A builder that deploys every push builds a PR merged right after ours instead: a live commit
-    # that has <merge-sha> in its history carries the merge too. Fetched once per live commit (again
-    # after a failed fetch); one git doesn't know even then is not this build, never an error.
+    # that has <merge-sha> in its history carries the merge too, unless it also reverts it. Only
+    # commit ids are compared (git would resolve `HEAD` or `main` locally). <base> is fetched once
+    # per live commit git doesn't know yet (again after a failed fetch); one it doesn't know even
+    # then is not this build, never an error.
+    HEX='^[0-9a-fA-F]{7,64}$'
+    known() { GIT_NO_LAZY_FETCH=1 git cat-file -e "$1^{commit}" 2>/dev/null; }
+    fetch_base() {   # at most 60 s: a remote that stalls mustn't hold the poll
+      GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 \
+        git fetch -q origin "$BASE" >/dev/null 2>&1 &
+      local fp=$! wp rc
+      ( sleep 60; kill "$fp" ) >/dev/null 2>&1 & wp=$!
+      wait "$fp" 2>/dev/null; rc=$?
+      kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
+      return "$rc"
+    }
     contains_merge() {
-      [[ "$LIVE" =~ ^[0-9a-fA-F]{7,64}$ ]] || return 1   # a commit id: `HEAD` or `main` resolve locally
-      if [ "$FETCHED" != "$LIVE" ]; then
-        GIT_TERMINAL_PROMPT=0 git fetch origin "$BASE" -q >/dev/null 2>&1 && FETCHED="$LIVE"
+      [[ "$SHA" =~ $HEX && "$LIVE" =~ $HEX ]] || return 1
+      if ! { known "$SHA" && known "$LIVE"; } && [ "$FETCHED" != "$LIVE" ]; then
+        fetch_base && FETCHED="$LIVE"
       fi
-      git merge-base --is-ancestor "$SHA" "$LIVE" >/dev/null 2>&1
+      GIT_NO_LAZY_FETCH=1 git merge-base --is-ancestor "$SHA" "$LIVE" >/dev/null 2>&1
+    }
+    reverts_merge() {   # grep reads it all: with pipefail, `grep -q` would fail git log on SIGPIPE
+      GIT_NO_LAZY_FETCH=1 git log --format=%B "$SHA..$LIVE" 2>/dev/null \
+        | grep -iF "This reverts commit $SHA" >/dev/null
     }
     while :; do
       if BODY="$(curl -fsS --max-time 10 "$URL" 2>/dev/null)"; then
@@ -61,6 +79,9 @@ case "$MODE" in
           echo "VERIFIED: $URL reports $LIVE"; exit 0
         fi
         if contains_merge; then
+          if reverts_merge; then
+            echo "UNVERIFIED: $URL reports $LIVE, which contains $SHA but also reverts it"; exit 10
+          fi
           echo "VERIFIED: $URL reports $LIVE (contains $SHA)"; exit 0
         fi
       fi
