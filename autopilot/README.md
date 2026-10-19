@@ -22,7 +22,7 @@ Every repo must be initialized once before the other commands run (they check th
 2. ensures `.claude/autopilot.config.json` (same detect-and-confirm interview as below);
 3. makes the **backlog** tracker (below) the repo's tracker — binds its projects (several per
    repo: a monorepo's sales / marketing / admin areas, each with a scope) and switches the config off
-   Linear / Jira / GitHub;
+   Jira / GitHub;
 4. bootstraps the **design system** — gstack `/design-consultation` → `DESIGN.md` (UI products);
 5. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
 6. writes the `.claude/autopilot.init.json` marker and commits.
@@ -32,7 +32,7 @@ Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs`.
 ## Backlog tracker + follow-ups
 
 The [ai-backlog](https://github.com/gitEventyr/ai-backlog) tracker is the default tracker
-(`tracker.type: "backlog"`; Linear / Jira / GitHub still work), hosted or local. It serves its own MCP
+(`tracker.type: "backlog"`; Jira / GitHub still work), hosted or local. It serves its own MCP
 server — register it once per machine, a hosted tracker with its token:
 
 ```bash
@@ -139,12 +139,12 @@ The repo's conventions, not the plugin's — set once in config, applied to ever
   subject); the key moves to a `Ticket: POS-42` line in the PR body and a `Refs: POS-42` commit
   trailer. The PR title is the squash subject, so it follows the same style.
 - **`git.branchPattern`** — `{key}`, `{key_lower}`, `{slug}`: `{key_lower}-{slug}` →
-  `pos-42-role-filter` (Linear's default). The key is found in a branch name case-insensitively.
+  `pos-42-role-filter`. The key is found in a branch name case-insensitively.
 - **`tracker.autoCreateIssue`** — default `false`: when `tracker.keyRequired` and there's no key,
   `/autodev` **asks** for one. `true` lets it open the issue itself via `tracker.mcp`.
 
 ```json
-"tracker": { "type": "linear", "keyPrefix": "POS", "keyRequired": true, "autoCreateIssue": false },
+"tracker": { "type": "backlog", "mcp": "mcp__backlog", "keyPrefix": "POS", "keyRequired": true, "autoCreateIssue": false },
 "git": { "branchPattern": "{key_lower}-{slug}", "commitStyle": "conventional", "...": "…" }
 ```
 
@@ -178,9 +178,9 @@ subagents**; the main agent applies the fixes. `/autopilot` loads the config onc
 `--preloaded` to both phases.
 
 **Tracker MCP permissions.** `allowed-tools` can't follow the configured tracker, so only the Jira
-and `backlog` server tools are pre-approved. For another tracker (e.g. Linear), add its MCP server to
-the consuming repo's `.claude/settings.json` → `permissions.allow` (e.g. `"mcp__linear"`) so
-`/autoship` Step 6 and the follow-up filing don't stop on a permission prompt.
+and `backlog` server tools are pre-approved. For another tracker (e.g. GitHub through its MCP
+server), add that server to the consuming repo's `.claude/settings.json` → `permissions.allow` (e.g.
+`"mcp__github"`) so `/autoship` Step 6 and the follow-up filing don't stop on a permission prompt.
 
 ## Video recording (opt-in)
 

@@ -15,8 +15,10 @@ branch + protection, ticket prefix, commit style, health URL, and a deploy workf
      empty when several or none are bound, or they're unknown because it refused the token —
      `/autopilot:init` Step 3 binds them). When it couldn't list them, or a configured tracker gave
      no answer, the draft's `_note` says why — pass that on.
-     It is the default, also over a `linear` / `jira` / `github` value from `--reconfigure` — confirm
-     the switch, the config is committed for everyone. `tracker.followUps` — `ask` (default) or `off`;
+     It is the default, also over a `jira` / `github` value from `--reconfigure` — confirm the switch,
+     the config is committed for everyone. A `--reconfigure` value the schema no longer lists (a
+     retired tracker) isn't carried over — `validate` fails on it: it becomes `backlog`, or the
+     draft's `none` when the tracker didn't answer. `tracker.followUps` — `ask` (default) or `off`;
      `tracker.autoCreateIssue` — may `/autodev` open a missing ticket itself? Default `false` (it asks);
      check the repo's rule docs first, many reserve that for a human;
    - `git.commitStyle` — `key-prefix` (`<KEY>: …`) or `conventional` (`type(scope): …`); the draft

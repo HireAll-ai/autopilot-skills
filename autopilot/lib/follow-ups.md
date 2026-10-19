@@ -26,7 +26,7 @@ items the operator already said no to.
   gives this repo's projects — often several (a monorepo's sales / marketing / admin areas), each with
   a `scope`. That holds even while `.tracker` still names the tracker the repo is moving off; say so
   and suggest `/autopilot:init` to switch it.
-- **Else `.tracker`** (`linear` / `jira` / `github` via its MCP or CLI), **else** nowhere: the drafts
+- **Else `.tracker`** (`jira` / `github` via its MCP or CLI), **else** nowhere: the drafts
   are printed.
 
 ## 3. Draft each one
@@ -93,7 +93,7 @@ drop or narrow it and say so.
   `title`, `description` = the brief, `priority`, `size`, and `followUpOf` = the issue this run was
   started for (`<KEY>`, the `Tracker issue:` line, or `list_issues` with `branch` = this branch) — the
   tracker links the two both ways.
-- `linear` / `jira` / `github` → that tracker's create tool via `.tracker.mcp` (`github` without an MCP:
+- `jira` / `github` → that tracker's create tool via `.tracker.mcp` (`github` without an MCP:
   `gh issue create --title … --body-file …`), with a "Follow-up of `<KEY>`" line at the top of the body.
 - Nowhere to file, or the tracker isn't reachable → print the picked briefs as a copy-pasteable block.
 

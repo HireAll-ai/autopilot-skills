@@ -1,5 +1,5 @@
 ---
-description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, makes the backlog tracker the repo's tracker (binds its projects — several per repo — and switches off Linear/Jira/GitHub), bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship and /autopilot require.
+description: One-time repo initialization for all autopilot commands — verifies/installs gstack, ensures .claude/autopilot.config.json, makes the backlog tracker the repo's tracker (binds its projects — several per repo — and switches off Jira/GitHub), bootstraps the design system (gstack /design-consultation → DESIGN.md) and baseline documentation (gstack /document-generate), then writes the .claude/autopilot.init.json marker that /autodev, /autoship and /autopilot require.
 argument-hint: "[--force] [--skip-backlog] [--skip-design] [--skip-docs]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, AskUserQuestion, mcp__backlog__list_projects, mcp__backlog__create_project, mcp__backlog__update_project
 ---
@@ -92,7 +92,7 @@ projects (a monorepo's sales / marketing / admin areas); each says which part of
    area it covers; propose one from the repo layout when it's empty and set it with `update_project`:
    it's how work is routed when the repo has several projects.
 5. **Make it the repo's tracker** — set the config's tracker block, replacing whatever was there
-   (`none`, or `linear` / `jira` / `github` the operator is moving off — the config is committed, so
+   (`none`, or `jira` / `github` the operator is moving off — the config is committed, so
    say that everyone's autopilot runs in this repo move with it, and name the old tracker in the
    report: its open issues stay where they were). `keyPrefix` = the default project for new issues
    (asked when several are bound); keys of every bound project are valid. Keep `keyRequired` /
@@ -105,6 +105,10 @@ projects (a monorepo's sales / marketing / admin areas); each says which part of
    Then `"${CLAUDE_PLUGIN_ROOT}/lib/autopilot-config.sh" validate`; it rides along in the init commit
    (Step 6). The operator can decline the switch — then the projects stay bound, and follow-ups still
    go to them.
+
+A `tracker.type` the schema no longer lists (a retired tracker) can't stay in the config — `validate`
+fails on it. Step 5 replaces it like any other; when the operator declines, or this step is skipped
+or pending, set it to `none` (without `mcp` and `shipStatus`) and say so in the report.
 
 ## Step 4 — design system bootstrap (skip with `--skip-design`)
 
