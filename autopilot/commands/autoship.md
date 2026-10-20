@@ -320,9 +320,9 @@ when it exits:
 
 | exit | meaning | do |
 |---|---|---|
-| **0** | `VERIFIED` — `build-id`: the endpoint reports `<merge-sha>`; `github-run`: the deploy run(s) for `<merge-sha>` went green | continue to the canary |
+| **0** | `VERIFIED` — `build-id`: the endpoint reports `<merge-sha>`, or a later commit that contains it (`… (contains <merge-sha>)`: a builder that deploys every push built a PR merged right after — the build carries those commits too, so a canary problem may be theirs); `github-run`: the deploy run(s) for `<merge-sha>` went green | continue to the canary |
 | **1** | `BROKEN` — a deploy run failed, or the build-id endpoint was unreachable the whole window | **hard STOP**: skip 5.5 / 5.6 / 6, surface it, offer the **revert recipe** |
-| **10** | `UNVERIFIED` — old build still answering at the deadline, no push run observed, or mode `none` | **unverified** (below) |
+| **10** | `UNVERIFIED` — old build still answering at the deadline, no push run observed, mode `none`, or the live build contains `<merge-sha>` but also reverts it | **unverified** (below) |
 | **12** | `COMMIT_UNKNOWN` — the endpoint answers but its commit reads `unknown`/empty (the build arg never arrived — **not** a failed deploy) | if it printed a `restartedAt` **after** the merge time, count it as deployed and say the evidence was the restart, not the commit; else **unverified** |
 | **2** | config/usage error (e.g. `build-id` without `buildIdUrl`) | fix the config, re-run |
 
@@ -387,7 +387,7 @@ Print the report — one block per PR, in ship order:
   Review:    <gate> <iters>, <passBar>, <N> resolved   (or: gate=none)
   CI:        green (<checks>)
   Merge:     <mergeStrategy> <SHA> (direct | --admin)
-  Deploy:    <env> — <verified <SHA> via <mode> | UNVERIFIED: <why>>, canary <ok | issues>   (or: deploy=none)
+  Deploy:    <env> — <verified <SHA> via <mode>[, live <later sha> contains it] | UNVERIFIED: <why>>, canary <ok | issues>   (or: deploy=none)
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
   Video:     <path(s) | gif in PR>[ · attached to <KEY>: N] | n/a: why
