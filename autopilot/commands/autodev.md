@@ -1,7 +1,7 @@
 ---
 description: Autonomous feature build that ends in a verified handoff — first checks the task is still relevant (asks when in doubt), then you decide how to plan, build and test; the command fixes what must be true when you stop — tests green per the repo's strategy, local review + browser QA done (or --e2e scenarios, optionally on video), a live preview link and a test plan, and a DRAFT PR with CI pre-warmed. Then STOPS for your verification. Never ships — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--e2e] [--video] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__attach_video
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__attach_video
 ---
 
 # /autodev — build it, prove it, hand it over (never ships)

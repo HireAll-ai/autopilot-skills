@@ -72,7 +72,19 @@ No candidates left → a single `Follow-ups: none` line in the report (plus the 
 
 ## 5. Propose — the operator picks
 
-Print a numbered table (`# · title · project · size · priority · why`) and, under it, one line with
+**Backlog in Constructor's agent chat → cards, not a question.** When the candidates go to backlog
+projects, the tracker MCP has `propose_issues` (`mcp__backlog__propose_issues` resolves) and the run is an
+agent in Constructor's chat (its instructions say you work inside Constructor), call it **once** with
+every candidate: `followUpOf` = the issue this run was started for (`<KEY>`, as in step 6), and per
+candidate `project`, `title`, `description` = the brief, `size`, `priority` (when clear) and `why` = the
+one-line why. Call it from the main conversation, not a subagent. It files nothing: the chat shows each
+as a card with **Backlog** / **Todo** buttons (and Add all), and the operator files what they want with a
+click — so **don't ask** which to file, and **skip step 6** (filing them yourself would duplicate the
+operator's clicks). Print one line instead: `Follow-ups: proposed N as cards (<titles>)`, plus the
+`Dropped: …` line below. Candidates for a repo without backlog projects still go in a printed block.
+If the call fails, fall back to the table and the question below.
+
+**Otherwise** print a numbered table (`# · title · project · size · priority · why`) and, under it, one line with
 the dropped duplicates and why (`Dropped: … already tracked TASK-7 · already done TASK-2 · in flight #12`),
 so the operator can overrule a false match. Then ask with `AskUserQuestion`
 (`multiSelect: true`): up to 4 options per question, up to 4 questions — option label
@@ -84,6 +96,8 @@ copy-pasteable block and **file nothing**.
 with noise and overrides teams that reserve ticket creation for a human.
 
 ## 6. File the picked ones
+
+(Not after `propose_issues` — the operator files those from the cards.)
 
 If the operator answered after the base or the tracker could have moved (another turn, a long wait),
 re-run step 4 on the picked ones first — a parallel chat may have filed or shipped one meanwhile;
