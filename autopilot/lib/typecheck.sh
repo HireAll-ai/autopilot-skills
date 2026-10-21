@@ -7,7 +7,8 @@
 # respecting .gitignore): an identical tree that already passed is a no-op, any change re-runs it.
 #
 # Usage: [AUTOPILOT_REPO=<dir>] typecheck.sh [--force]    # AUTOPILOT_REPO: another checkout than the cwd
-# Exit:  0 = passed (or cached pass, or no typecheck configured); otherwise the typecheck's own code.
+# Exit:  0 = passed (or cached pass, or no typecheck configured); 2 = no config, or one that isn't
+#        one JSON object (autopilot-config.sh names it on stderr); otherwise the typecheck's own code.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"

@@ -17,7 +17,8 @@
 #        12 build-id endpoint answers but the commit reads unknown/empty; the last response's
 #                      restartedAt value (if .deploy.verify.restartedAtJq is set) is printed so the
 #                      caller can compare it to the merge time.
-#        2  usage / config error — no config, or one that isn't a JSON object, among them
+#        2  usage / config error, named on stderr — no config, one it can't read or that isn't one
+#                      JSON object, a timeoutSeconds that isn't a whole number, among them
 set -uo pipefail
 
 SHA="${1:-}"; [ -n "$SHA" ] || { echo "usage: verify-deploy.sh <merge-sha>" >&2; exit 2; }
@@ -28,17 +29,20 @@ fi
 cfg() { "$SCRIPT_DIR/autopilot-config.sh" get "$1" "${2-}"; }
 
 # `get` inside $(…) loses its exit code: no config would read as mode none, a broken one as every
-# default — both rc 10, so check it first: one JSON object, slurped (`jq empty`, and jq 1.6's `-e`
-# on its own, pass an empty file).
-CONF="$("$SCRIPT_DIR/autopilot-config.sh" path)" || exit 2
-"$SCRIPT_DIR/autopilot-config.sh" exists || { echo "verify-deploy: no config at $CONF" >&2; exit 2; }
-jq -es 'map(type) == ["object"]' "$CONF" >/dev/null 2>&1 || { echo "verify-deploy: invalid JSON at $CONF" >&2; exit 2; }
+# default — both rc 10. So one `get` first, outside $(…): it fails on a config that is missing,
+# unreadable or not one JSON object, and names the cause, passed on here under this script's name.
+if ! ERR="$("$SCRIPT_DIR/autopilot-config.sh" get . 2>&1 >/dev/null)"; then
+  echo "verify-deploy: ${ERR#autopilot-config: }" >&2; exit 2
+fi
 
 TRIGGER="$(cfg '.deploy.trigger' 'none')"
 MODE="$(cfg '.deploy.verify.mode' '')"
 if [ -z "$MODE" ]; then [ "$TRIGGER" = "github-action" ] && MODE="github-run" || MODE="none"; fi
 TIMEOUT="$(cfg '.deploy.verify.timeoutSeconds' '600')"
-DEADLINE=$(( $(date +%s) + TIMEOUT ))
+# digits only before it meets $(( )): bash arithmetic reads "abc" as a variable and runs the
+# $(…) in a subscript like "PATH[$(cmd)]"; 10#: a leading zero isn't octal
+case "$TIMEOUT" in ''|*[!0-9]*) echo "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$TIMEOUT'" >&2; exit 2;; esac
+DEADLINE=$(( $(date +%s) + 10#$TIMEOUT ))
 echo "verify-deploy: mode=$MODE sha=$SHA timeout=${TIMEOUT}s"
 
 case "$MODE" in
