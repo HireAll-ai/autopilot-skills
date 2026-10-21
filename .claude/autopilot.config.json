@@ -16,7 +16,10 @@
     "mergeStrategy": "squash",
     "deleteBranchOnMerge": true,
     "protection": {
-      "requiredChecks": [],
+      "requiredChecks": [
+        "check (ubuntu-latest)",
+        "check (macos-latest)"
+      ],
       "strict": false,
       "requireThreadResolution": false,
       "requiredApprovals": 0,
