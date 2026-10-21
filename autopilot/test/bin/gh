@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# gh stub for test/stacked-merge.sh. PRs are files under $SIM/prs/<n> (state, base, head, title,
+# headoid, merge); the remote is the bare repo $SIM/origin.git. Every call is appended to
+# $SIM/calls.log. Covers only what /autoship's merge steps call: gh pr view | list | edit | merge.
+# GH_STUB_FAIL_EDIT=<n> makes `gh pr edit` of PR <n> fail.
+set -euo pipefail
+: "${SIM:?SIM not set}"
+seq_next() { local n; n=$(( $(cat "$SIM/seq" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$SIM/seq"; printf '%02d' "$n"; }
+echo "$(seq_next) gh $*" >> "$SIM/calls.log"
+
+get() { sed -n "s/^$2=//p" "$SIM/prs/$1"; }
+set_() { local f="$SIM/prs/$1"; sed "s|^$2=.*|$2=$3|" "$f" > "$f.tmp" && mv "$f.tmp" "$f"; }
+num() { local r="${1##*/}"; echo "${r#\#}"; }          # 7, #7 or …/pull/7 → 7
+url() { echo "https://github.com/acme/app/pull/$1"; }
+sha() { git --git-dir="$SIM/origin.git" rev-parse -q --verify "refs/heads/$1" 2>/dev/null || true; }
+refresh_oid() { local s; s=$(sha "$(get "$1" head)"); [ -z "$s" ] || set_ "$1" headoid "$s"; }
+pr_json() {
+  jq -n --argjson number "$1" --arg url "$(url "$1")" --arg state "$(get "$1" state)" \
+    --arg base "$(get "$1" base)" --arg head "$(get "$1" head)" --arg oid "$(get "$1" headoid)" \
+    --arg merge "$(get "$1" merge)" --arg title "$(get "$1" title)" \
+    '{number:$number,url:$url,state:$state,title:$title,baseRefName:$base,headRefName:$head,
+      headRefOid:$oid,mergeCommit:(if $merge=="" then null else {oid:$merge} end)}'
+}
+out() { if [ -n "$JQ" ]; then jq -r "$JQ"; else cat; fi; }
+
+[ "${1:-}" = pr ] || { echo "gh stub: only 'gh pr …'" >&2; exit 2; }
+cmd=$2; shift 2
+JQ="" BASE="" STATE="open" REF="" STRAT="" DEL=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --jq|-q) JQ=$2; shift 2;;
+    --json) shift 2;;
+    --base|-B) BASE=$2; shift 2;;
+    --state|-s) STATE=$2; shift 2;;
+    --squash|--merge|--rebase) STRAT=${1#--}; shift;;
+    --delete-branch|-d) DEL=1; shift;;
+    -*) echo "gh stub: unsupported flag $1" >&2; exit 2;;
+    *) REF=$1; shift;;
+  esac
+done
+
+case "$cmd" in
+  view)
+    n=$(num "$REF"); refresh_oid "$n"; pr_json "$n" | out;;
+  list)
+    for f in "$SIM"/prs/*; do
+      n=${f##*/}; refresh_oid "$n"
+      [ "$(get "$n" state | tr 'A-Z' 'a-z')" = "$STATE" ] || continue
+      [ -z "$BASE" ] || [ "$(get "$n" base)" = "$BASE" ] || continue
+      pr_json "$n"
+    done | jq -s . | out;;
+  edit)
+    n=$(num "$REF")
+    [ "${GH_STUB_FAIL_EDIT:-}" != "$n" ] || { echo "GraphQL: something went wrong (stubbed failure)" >&2; exit 1; }
+    [ "$(get "$n" state)" = OPEN ] || { echo "PR #$n is not open" >&2; exit 1; }
+    [ -n "$(sha "$BASE")" ] || { echo "Base ref must be a branch: $BASE" >&2; exit 1; }
+    set_ "$n" base "$BASE"; url "$n";;
+  merge)
+    n=$(num "$REF")
+    [ "$(get "$n" state)" = OPEN ] || { echo "PR #$n is not open" >&2; exit 1; }
+    [ "$STRAT" = squash ] || { echo "gh stub: only --squash" >&2; exit 2; }
+    base=$(get "$n" base); head=$(get "$n" head); refresh_oid "$n"
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/gh-stub.XXXXXX")
+    git clone -q "$SIM/origin.git" "$tmp/c"
+    git -C "$tmp/c" checkout -q "$base"
+    git -C "$tmp/c" merge -q --squash "origin/$head" >/dev/null
+    git -C "$tmp/c" commit -q -m "$(get "$n" title) (#$n)"
+    git -C "$tmp/c" push -q origin "$base"
+    set_ "$n" merge "$(git -C "$tmp/c" rev-parse HEAD)"; set_ "$n" state MERGED; rm -rf "$tmp"
+    echo "✓ Squashed and merged pull request #$n"
+    if [ "$DEL" = 1 ]; then   # real gh: DELETE repos/…/git/refs/heads/<head> through the API
+      git --git-dir="$SIM/origin.git" update-ref -d "refs/heads/$head"
+      echo "x 0000000000000000000000000000000000000000 refs/heads/$head" | "$SIM/origin.git/hooks/post-receive"
+      echo "✓ Deleted remote branch $head"
+    fi;;
+  *) echo "gh stub: unsupported 'gh pr $cmd'" >&2; exit 2;;
+esac

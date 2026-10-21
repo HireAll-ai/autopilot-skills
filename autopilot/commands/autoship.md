@@ -71,7 +71,7 @@ tree hash), so every gate below that re-asserts it costs nothing unless the code
 
 **A PR in another repo** runs against its checkout `<dir>` — never `cd` there: `git -C <dir> …`;
 `gh pr <cmd> <PR-url>` in place of `<PR>` (the URL carries the repo) and `-R <owner>/<repo>` for
-`gh run` / `gh repo`; `gh api` paths spelled out as `repos/<owner>/<repo>/pulls/<number>/…`
+`gh run` / `gh repo` / `gh pr list`; `gh api` paths spelled out as `repos/<owner>/<repo>/pulls/<number>/…`
 (`{owner}/{repo}` expands to the **cwd's** repo); and `AUTOPILOT_REPO=<dir>` (absolute) in front of
 every `${CLAUDE_PLUGIN_ROOT}/lib/*.sh` call, `<typecheck>` included.
 
@@ -157,7 +157,11 @@ For each PR, before anything merges:
 
 **Order.** A PR that consumes what another introduces (a shared package, an API / schema / contract
 change, a migration) ships **after** it — the provider through Step 5 first, so the consumer lands on
-a live provider. Otherwise in the order the chat opened them. Print the plan once:
+a live provider. **A stack** — a PR whose base is another listed PR's head branch (`gh pr view
+<PR-url> --json baseRefName,headRefName`) — ships bottom first: once the PR under it merges, that
+PR's Step 4.1 retargets it to `<base>`, and only then does it run Step 0.5, which rebases it with
+`git rebase --onto "origin/<base>" <old base head>` (a squash or rebase merge leaves the old commits
+in its history, so a plain rebase would replay them). Otherwise in the order the chat opened them. Print the plan once:
 `Shipping N PR(s): <owner>/<repo>#<n> (<dir>), …`.
 
 **Then Steps 0.5–5 run once per PR, in that order**, each in its checkout under its repo's config;
@@ -186,6 +190,13 @@ git merge-base --is-ancestor "origin/<base>" HEAD && echo "already current — n
 git push --force-with-lease -u origin HEAD   # no-op if nothing changed (keeps pre-warmed CI); -u: the
                                              # branch may never have been pushed (no /autodev run)
 ```
+**A stacked PR whose base PR merged in this run** (Step 0) rebases with `--onto` in place of the plain
+`git rebase`: `git rebase --onto "origin/<base>" <old base head>`, then `<typecheck>` and the push as
+above. `<old base head>` = the `<head-sha>` its base PR's Step 4 captured, when
+`git merge-base --is-ancestor <head-sha> HEAD` holds; otherwise that PR was rebased after this one
+branched — `git log --oneline "origin/<base>..HEAD"` lists both PRs' commits: take the one just
+below this PR's oldest own commit.
+
 The pre-warm survives **only** when step 1 found nothing to commit and no rebase happened (then
 `git push` is a true no-op). Otherwise CI/review correctly re-run on the new HEAD — intended, not
 wasted. Unresolvable rebase conflicts → **STOP and report**.
@@ -263,14 +274,20 @@ If `.git.protection.strict` is false, a plain **`BEHIND`** branch still merges �
 
 ## Step 4 — Merge (autonomous, repo-aware)
 
-Re-confirm the hard gate, then merge with the configured strategy (`--delete-branch` only when
-`.git.deleteBranchOnMerge` is true):
+Re-confirm the hard gate, then capture the PR's branch (4.1 needs `<head>`, a stacked PR's Step 0.5
+`<head-sha>`):
 ```bash
-gh pr merge <PR> --<mergeStrategy> [--delete-branch]
+gh pr view <PR> --json headRefName,headRefOid --jq '"\(.headRefName) \(.headRefOid)"'   # <head> <head-sha>
+```
+Merge with the configured strategy — **never with `--delete-branch`**: deleting `<head>` while an open
+PR is based on it makes GitHub **close** that PR instead of retargeting it. 4.1 retargets those PRs
+first, then deletes the branch.
+```bash
+gh pr merge <PR> --<mergeStrategy>
 ```
 **Merge queue** — when `.git.mergeQueue` is true, or the direct merge is rejected because the base
-requires a merge queue: enqueue instead, `gh pr merge <PR> --auto [--delete-branch]` (the queue
-applies its own strategy), then wait for it **in the background**:
+requires a merge queue: enqueue instead, `gh pr merge <PR> --auto` (the queue applies its own
+strategy), then wait for it **in the background**:
 ```bash
 for i in $(seq 1 90); do   # ≤45 min
   S=$(gh pr view <PR> --json state,autoMergeRequest --jq '"\(.state) \(.autoMergeRequest != null)"')
@@ -287,15 +304,33 @@ cannot bypass protection) — re-query every check and refuse `--admin` unless a
 ```bash
 NOT_GREEN=$(gh pr checks <PR> --json name,state,bucket \
   | jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length')
-if [ "$NOT_GREEN" = "0" ]; then gh pr merge <PR> --<mergeStrategy> [--delete-branch] --admin
+if [ "$NOT_GREEN" = "0" ]; then gh pr merge <PR> --<mergeStrategy> --admin
 else echo "ABORT: $NOT_GREEN check(s) not green — refusing --admin"; fi
 ```
-A worktree-cleanup error from `--delete-branch` is harmless.
 
 **Capture the merge SHA** — Step 5 needs it (write it into later commands verbatim as `<merge-sha>`):
 ```bash
 gh pr view <PR> --json mergeCommit --jq '.mergeCommit.oid // "ABORT: no merge commit SHA — did the merge land?"'
 ```
+
+### 4.1 — Retarget the PRs based on its branch, then delete the branch
+
+Only once the merge landed (a real `<merge-sha>`), in this order:
+```bash
+gh pr list --base "<head>" --state open --json url --jq '.[].url'   # the PRs based on <head>
+gh pr edit <their-PR-url> --base "<base>"                           # each of them
+gh pr list --base "<head>" --state open --json url --jq length      # must print 0
+git push origin --delete "<head>"   # only with .git.deleteBranchOnMerge, and only after the 0
+```
+- Retarget **every** open PR based on `<head>` — this run's next PR in a stack and anyone else's — even
+  when `.git.deleteBranchOnMerge` is false: a PR left on a merged branch would merge into it, not
+  `<base>`. Rebase only this run's own (Step 0.5); name the others in the report — they need the same
+  `git rebase --onto "origin/<base>" <head-sha>`.
+- The recount isn't 0 (an edit failed, a PR was opened on `<head>` meanwhile) → retarget those and
+  count again; still not 0 → **keep the branch** and report the PRs still on it. Never delete a
+  branch an open PR is based on.
+- Only the remote branch goes; the local one stays where it is checked out. The push saying the remote
+  ref doesn't exist means the repo deletes merged branches itself — harmless.
 
 ## Step 5 — Verify the deploy (light canary)
 
@@ -386,7 +421,7 @@ Print the report — one block per PR, in ship order:
   PR:        <owner>/<repo>#<n> — <title>
   Review:    <gate> <iters>, <passBar>, <N> resolved   (or: gate=none)
   CI:        green (<checks>)
-  Merge:     <mergeStrategy> <SHA> (direct | --admin)
+  Merge:     <mergeStrategy> <SHA> (direct | --admin)[, retargeted to <base>: #<n>…][, branch kept: #<n> still on it]
   Deploy:    <env> — <verified <SHA> via <mode>[, live <later sha> contains it] | UNVERIFIED: <why>>, canary <ok | issues>   (or: deploy=none)
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
@@ -440,6 +475,11 @@ holds up the ship; the operator's picks are filed, the rest is printed.
   passes the PRs its own `/autodev` phase opened, so drafts still awaiting your verification stay put.
 - Pairs with `/autodev` (plan→build→test→draft-PR→verify-gate). For the no-verification single-shot
   variant see `/autopilot` (autodev + autoship back-to-back, staging QA ON by default).
+- Stacked PRs (each based on the previous one's branch) ship bottom first. A merged PR's branch is
+  deleted only after the open PRs based on it are retargeted to `<base>` (Step 4.1) — `gh pr merge
+  --delete-branch` would delete it first, and GitHub then closes them. With `.git.deleteBranchOnMerge`,
+  a two-PR stack ends with the second PR open and based on `<base>`, rebased with
+  `git rebase --onto` (Step 0.5), and shipped in turn.
 - Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on
   strict protection. The e2e videos (Step 5.6, backlog), the ticket move (Step 6) and the follow-ups
   the operator picks (Step 7) are the only places `/autoship` writes to the tracker.
