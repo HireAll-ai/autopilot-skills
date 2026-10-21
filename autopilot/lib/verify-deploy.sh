@@ -18,7 +18,8 @@
 #                      restartedAt value (if .deploy.verify.restartedAtJq is set) is printed so the
 #                      caller can compare it to the merge time.
 #        2  usage / config error, named on stderr — no config, one it can't read or that isn't one
-#                      JSON object, a timeoutSeconds that isn't a whole number, among them
+#                      JSON object, a timeoutSeconds that isn't a whole number of ASCII digits or
+#                      is over a day (86400), among them
 set -uo pipefail
 
 SHA="${1:-}"; [ -n "$SHA" ] || { echo "usage: verify-deploy.sh <merge-sha>" >&2; exit 2; }
@@ -40,9 +41,17 @@ MODE="$(cfg '.deploy.verify.mode' '')"
 if [ -z "$MODE" ]; then [ "$TRIGGER" = "github-action" ] && MODE="github-run" || MODE="none"; fi
 TIMEOUT="$(cfg '.deploy.verify.timeoutSeconds' '600')"
 # digits only before it meets $(( )): bash arithmetic reads "abc" as a variable and runs the
-# $(…) in a subscript like "PATH[$(cmd)]"; 10#: a leading zero isn't octal
-case "$TIMEOUT" in ''|*[!0-9]*) echo "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$TIMEOUT'" >&2; exit 2;; esac
-DEADLINE=$(( $(date +%s) + 10#$TIMEOUT ))
+# $(…) in a subscript like "PATH[$(cmd)]". The digits are listed: under a UTF-8 locale [0-9] also
+# matches ٣ or ０, which $(( )) then refuses
+case "$TIMEOUT" in ''|*[!0123456789]*) echo "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$TIMEOUT'" >&2; exit 2;; esac
+# at most a day, by its digit count first: 64-bit arithmetic wraps silently — a deadline in the past
+# would read as BROKEN after one poll. Leading zeros dropped, so "030" is 30, not octal
+MAX_TIMEOUT=86400
+SECS="${TIMEOUT#"${TIMEOUT%%[!0]*}"}"
+if [ ${#SECS} -gt ${#MAX_TIMEOUT} ] || [ "${SECS:-0}" -gt "$MAX_TIMEOUT" ]; then
+  echo "verify-deploy: .deploy.verify.timeoutSeconds must be at most $MAX_TIMEOUT (a day), got '$TIMEOUT'" >&2; exit 2
+fi
+DEADLINE=$(( $(date +%s) + ${SECS:-0} ))
 echo "verify-deploy: mode=$MODE sha=$SHA timeout=${TIMEOUT}s"
 
 case "$MODE" in
