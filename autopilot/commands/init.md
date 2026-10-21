@@ -48,7 +48,8 @@ Same loader as the other commands, minus the init-marker check (this command wri
 - **rc=0** → config present (stdout). Keep it in context for the steps below.
 - **rc=3** → stdout is an autodetected draft: Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md`
   and run that interview.
-- **rc=2 / other** → loader hard error on stderr (commonly: `jq` missing) → surface it, **STOP**.
+- **rc=2 / other** → loader hard error on stderr (commonly: `jq` missing, or a config that can't be read
+  or isn't one JSON object — merge-conflict markers: fix it, or re-run with `--force`) → surface it, **STOP**.
 
 ## Step 3 — backlog tracker (skip with `--skip-backlog`)
 

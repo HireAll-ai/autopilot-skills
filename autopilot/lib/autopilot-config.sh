@@ -8,18 +8,19 @@
 # Usage:
 #   autopilot-config.sh path                 # print resolved config path (exists or not)
 #   autopilot-config.sh exists               # exit 0 if config present, 1 if not
-#   autopilot-config.sh dump                 # cat the config JSON
+#   autopilot-config.sh dump                 # cat the config JSON; rc 2 if it is missing or broken
 #   autopilot-config.sh get <jqfilter> [def] # print a value (raw); [def] if null/missing; rc 2 if the config is missing or broken
 #   autopilot-config.sh detect               # print an autodetected DRAFT config to stdout
 #   autopilot-config.sh backlog              # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 #   autopilot-config.sh validate [file]      # validate a config against the schema
-#   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure) → detect + exit 3
+#   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure, broken or not) → detect + exit 3
 #   autopilot-config.sh load [--reconfigure]    # init marker check (exit 4 if missing), then ensure
 #
 # `load` is the Step-0 entry point of /autodev, /autoship, /autopilot: one call, everything on stdout
 # so the agent reads the config ONCE into context. exit 0 = loaded (config on stdout); exit 3 = no
 # config (or --reconfigure) — a detected draft is on stdout, run the interview and write it;
-# exit 4 = repo not initialized (run /autopilot:init); exit 2 = hard error (stderr).
+# exit 4 = repo not initialized (run /autopilot:init); exit 2 = hard error (stderr), a config that
+# can't be read or isn't one JSON object (merge-conflict markers) among them.
 # `ensure` is the same minus the marker check (used by /autopilot:init itself).
 #
 # AUTOPILOT_REPO=<dir> runs any subcommand against the checkout at <dir> instead of the cwd — how
@@ -42,16 +43,22 @@ _cmd_path() { echo "$CONFIG_PATH"; }
 
 _cmd_exists() { [ -f "$CONFIG_PATH" ]; }
 
-_cmd_dump() { _cmd_exists || _die "no config at $CONFIG_PATH (run: autopilot-config.sh detect)"; cat "$CONFIG_PATH"; }
+# a config that can't be read or isn't one JSON object fails here, so the broken text (merge-conflict
+# markers) never reaches the agent that loads it
+_cmd_dump() {
+  _cmd_exists || _die "no config at $CONFIG_PATH (run: autopilot-config.sh detect)"
+  _check_config; cat "$CONFIG_PATH"
+}
 
-# the config is there and holds exactly one JSON object, else rc 2 naming the cause. Slurped: `jq
-# empty`, and jq 1.6's `-e` on its own, pass an empty file.
+# _check_config [file] — the config (or <file>) is there and holds exactly one JSON object, else rc 2
+# naming the cause. Slurped: `jq empty`, and jq 1.6's `-e` on its own, pass an empty file.
 _check_config() {
-  _cmd_exists || _die "no config at $CONFIG_PATH"
-  [ -r "$CONFIG_PATH" ] || _die "cannot read config at $CONFIG_PATH"
-  jq -es 'map(type) == ["object"]' "$CONFIG_PATH" >/dev/null 2>&1 && return 0
-  jq empty "$CONFIG_PATH" >/dev/null 2>&1 || _die "invalid JSON at $CONFIG_PATH"
-  _die "config at $CONFIG_PATH is not one JSON object"
+  local f="${1:-$CONFIG_PATH}"
+  [ -f "$f" ] || _die "no config at $f"
+  [ -r "$f" ] || _die "cannot read config at $f"
+  jq -es 'map(type) == ["object"]' "$f" >/dev/null 2>&1 && return 0
+  jq empty "$f" >/dev/null 2>&1 || _die "invalid JSON at $f"
+  _die "config at $f is not one JSON object"
 }
 
 # get <jqfilter> [default] — raw output; [default] applies ONLY when the value is null/absent.
@@ -342,8 +349,7 @@ _cmd_detect() {
 # a jq-based structural check of the required top-level keys + version.
 _cmd_validate() {
   local file="${1:-$CONFIG_PATH}"
-  [ -f "$file" ] || _die "no such config: $file"
-  jq empty "$file" 2>/dev/null || _die "invalid JSON: $file"
+  _check_config "$file"   # names the cause first: an empty file isn't "version must be 1"
   if command -v npx >/dev/null 2>&1 && npx --no-install ajv --help >/dev/null 2>&1; then
     # ajv is present — honor its verdict (a non-zero exit is a real failure, not a fall-through).
     if npx --no-install ajv validate -s "$SCHEMA_PATH" -d "$file"; then return 0; else _die "schema validation failed: $file"; fi
@@ -358,9 +364,17 @@ _cmd_validate() {
   echo "ok (structural): $file — install 'ajv-cli' for full schema validation"
 }
 
+# --reconfigure works on a broken config too: the interview rewrites it, starting from the draft
 _cmd_ensure() {
+  local err
   if [ "${1-}" = "--reconfigure" ]; then
-    _cmd_exists && echo "autopilot-config: --reconfigure — current config kept at $CONFIG_PATH (start the interview from its values); detected draft follows on stdout" >&2
+    if _cmd_exists; then
+      if err="$(_check_config 2>&1)"; then
+        echo "autopilot-config: --reconfigure — current config kept at $CONFIG_PATH (start the interview from its values); detected draft follows on stdout" >&2
+      else
+        echo "autopilot-config: --reconfigure — current config is broken (${err#autopilot-config: }): start the interview from the detected draft that follows on stdout, it rewrites the file" >&2
+      fi
+    fi
     _cmd_detect; exit 3
   fi
   if _cmd_exists; then _cmd_dump; exit 0; fi

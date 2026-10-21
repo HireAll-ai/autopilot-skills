@@ -7,11 +7,12 @@
 # a temp dir, so the only ~/.claude.json read is the one the detect scenario writes.
 #
 # Usage: autopilot/test/config.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
-#   load            valid config + init marker → rc 0 and the config / no config → rc 3 and a detected
-#                   draft / no init marker → rc 4
+#   load            valid config + init marker → rc 0 and the config / a config that isn't JSON or is []:
+#                   load, ensure, dump → rc 2, the cause named, nothing on stdout; --reconfigure → rc 3
+#                   and a draft, broken or not / no config → rc 3 and a detected draft / no init marker → rc 4
 #   get             get <filter> [default], path, exists, dump; get on a config that isn't JSON, is
 #                   empty or [] or can't be read (skipped as root) → rc 2, the cause named
-#   validate        a valid config, then broken ones: not JSON, keys missing, another version
+#   validate        a valid config, then broken ones: not JSON, empty, [], keys missing, another version
 #   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: outside any repo, inside another repo
 #   typecheck       empty command → skipped; pass → cached pass; a changed tree or --force → re-run;
 #                   a failing command → its exit code; a config that isn't JSON → rc 2, not skipped
@@ -100,7 +101,7 @@ repo() {
 }
 
 scenario_load() {
-  local R="$T/load" N="$T/load-none"
+  local R="$T/load" N="$T/load-none" C="$T/load/.claude/autopilot.config.json"
   repo "$R" true
   run in_dir "$R" "$CONFIG" load
   check "valid config + init marker → rc 0, the config byte for byte on stdout" printed_config "$R"
@@ -108,6 +109,27 @@ scenario_load() {
   check "the same from a subdirectory" printed_config "$R"
   run in_dir "$R" "$CONFIG" load --reconfigure
   check "--reconfigure → rc 3, a detected draft on stdout" bash -c "[ $RC = 3 ] && jq -e '.version == 1' '$T/out'"
+  check "… 'current config kept' on stderr" fails_with 3 "current config kept at $C"
+
+  cp "$C" "$T/load-good.json"
+  printf '{ "commands": \n' > "$C"
+  run in_dir "$R" "$CONFIG" load
+  check "a config that isn't JSON → rc 2, 'invalid JSON at <path>' on stderr" fails_with 2 "invalid JSON at $C"
+  check "… nothing on stdout: the broken text never reaches the agent" bash -c "[ ! -s '$T/out' ]"
+  run in_dir "$R" "$CONFIG" ensure
+  check "… ensure (/autopilot:init) → rc 2 too, nothing on stdout" bash -c "[ $RC = 2 ] && [ ! -s '$T/out' ] && grep -qF 'invalid JSON at $C' '$T/err'"
+  run in_dir "$R" "$CONFIG" dump
+  check "… dump → rc 2 too, nothing on stdout" bash -c "[ $RC = 2 ] && [ ! -s '$T/out' ] && grep -qF 'invalid JSON at $C' '$T/err'"
+  run in_dir "$R" "$CONFIG" load --reconfigure
+  check "… load --reconfigure → rc 3, a detected draft on stdout (the interview rewrites the file)" \
+    bash -c "[ $RC = 3 ] && jq -e '.version == 1' '$T/out'"
+  check "… the cause on stderr, the interview told to start from the draft" \
+    fails_with 3 "current config is broken (invalid JSON at $C): start the interview from the detected draft"
+  echo '[]' > "$C"
+  run in_dir "$R" "$CONFIG" load
+  check "a config that is [] → rc 2, not one JSON object" fails_with 2 "config at $C is not one JSON object"
+  check "… nothing on stdout" bash -c "[ ! -s '$T/out' ]"
+  cp "$T/load-good.json" "$C"
 
   git init -q -b main "$N"; mkdir "$N/.claude"; cp "$R/.claude/autopilot.init.json" "$N/.claude/"
   git -C "$N" add -A; git -C "$N" commit -q -m "chore: init"
@@ -186,7 +208,15 @@ scenario_validate() {
   check "the same file named as an argument → rc 0" rc_is 0
   printf '{ "version": 1,\n' > "$T/not-json.json"
   run in_dir "$R" "$CONFIG" validate "$T/not-json.json"
-  check "not JSON → rc 2, invalid JSON" fails_with 2 "invalid JSON: $T/not-json.json"
+  check "not JSON → rc 2, invalid JSON" fails_with 2 "invalid JSON at $T/not-json.json"
+  : > "$T/empty.json"
+  run in_dir "$R" "$CONFIG" validate "$T/empty.json"
+  check "an empty file → rc 2, not one JSON object (not 'version must be 1')" \
+    fails_with 2 "config at $T/empty.json is not one JSON object"
+  echo '[]' > "$T/array.json"
+  run in_dir "$R" "$CONFIG" validate "$T/array.json"
+  check "[] → rc 2, not one JSON object (not 'missing required top-level keys')" \
+    fails_with 2 "config at $T/array.json is not one JSON object"
   jq 'del(.deploy, .qa)' "$C" > "$T/keys-missing.json"
   run in_dir "$R" "$CONFIG" validate "$T/keys-missing.json"
   check "deploy and qa missing → rc 2, both named" fails_with 2 "missing required top-level keys: deploy, qa"
@@ -194,7 +224,7 @@ scenario_validate() {
   run in_dir "$R" "$CONFIG" validate "$T/version-2.json"
   check "version 2 → rc 2, version must be 1" fails_with 2 "version must be 1"
   run in_dir "$R" "$CONFIG" validate "$T/absent.json"
-  check "a file that isn't there → rc 2, no such config" fails_with 2 "no such config"
+  check "a file that isn't there → rc 2, no config at <file>" fails_with 2 "no config at $T/absent.json"
 }
 
 scenario_autopilot-repo() {

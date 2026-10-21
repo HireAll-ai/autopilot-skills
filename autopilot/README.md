@@ -99,7 +99,10 @@ rest: tracker type + MCP + ship status, review gate, deploy URLs, whether to ena
 
 The commands load it with **one** call at Step 0.0 — `autopilot-config.sh load` checks the init marker
 (exit 4 if missing) and prints the config (exit 0) or an autodetected draft (exit 3) to stdout, so the
-agent reads the config once into context instead of re-querying it per value. The interview itself
+agent reads the config once into context instead of re-querying it per value. A config it can't read
+or that isn't one JSON object (merge-conflict markers) stops it with exit 2 and the cause on stderr —
+the broken text never reaches the agent; `--reconfigure` still works on one, starting the interview
+from the draft. The interview itself
 lives in [`lib/config-interview.md`](lib/config-interview.md) and is only read when needed.
 
 Preview / inspect via the loader (resolve the plugin dir with `claude plugin root autopilot`):
@@ -169,7 +172,7 @@ merge still pending. A ticket shared by several PRs moves only once all of them 
 | script | used by | what it saves |
 |---|---|---|
 | `lib/typecheck.sh` | every `<typecheck>` gate in `/autodev` + `/autoship` | runs `.commands.typecheck` at most once per working tree (cache keyed by tree hash under the per-worktree git dir), so re-asserting the gate after a no-op rebase/push is free. A config that is missing or isn't one JSON object fails it with rc 2 — `autopilot-config.sh get` refuses it rather than read every key as its default |
-| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `build-id` also counts a later commit that contains the merge and doesn't revert it (`git merge-base --is-ancestor`, after a fetch of the base branch when git doesn't know the commit — a builder that deploys every push may build the PR merged right after); `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown / 2 usage or config error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number, too) |
+| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `build-id` also counts a later commit that contains the merge and doesn't revert it (`git merge-base --is-ancestor`, after a fetch of the base branch when git doesn't know the commit — a builder that deploys every push may build the PR merged right after); `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown / 2 usage or config error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of ASCII digits or is over 86400 (a day), too) |
 
 `autopilot-config.sh`, `typecheck.sh` and `verify-deploy.sh` all take `AUTOPILOT_REPO=<dir>` to act
 on another checkout than the cwd — how `/autoship` handles a PR in a sibling repo without `cd`.

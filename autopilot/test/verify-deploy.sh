@@ -11,7 +11,8 @@
 #
 # Usage: autopilot/test/verify-deploy.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
 #   usage           no <merge-sha>, no config, a config that isn't JSON, is empty or [] or can't be read
-#                   (skipped as root), a timeoutSeconds that isn't a whole number, build-id without
+#                   (skipped as root), a timeoutSeconds that isn't a whole number (Arabic-Indic or fullwidth
+#                   digits under a UTF-8 locale too, skipped without one) or is over a day, build-id without
 #                   buildIdUrl, an unknown mode, a missing AUTOPILOT_REPO, `gh repo view` failing → rc 2
 #   none            mode none, set or by default → rc 10, UNVERIFIED, nothing polled
 #   build-id        the merge (full or short sha) → rc 0; the build flips on the 2nd poll → rc 0; a later
@@ -172,6 +173,30 @@ scenario_usage() {
   build_id "$W" "$(jq -n --arg t "PATH[\$(touch '$T/ran')]" '$t')"
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "timeoutSeconds with a \$(…) in a subscript → rc 2, the command not run" bash -c "[ $RC = 2 ] && [ ! -e '$T/ran' ]"
+  # glibc's en_US.UTF-8 has [0-9] match Arabic-Indic digits; C.UTF-8 doesn't, so it comes second
+  local locales loc; locales=$(locale -a 2>/dev/null || true)
+  loc=$(grep -m 1 -ixE 'en_US\.utf-?8' <<<"$locales" || grep -m 1 -ixE 'C\.utf-?8' <<<"$locales" || true)
+  if [ -z "$loc" ]; then
+    skip "timeoutSeconds in Arabic-Indic or fullwidth digits under a UTF-8 locale (neither en_US.UTF-8 nor C.UTF-8 here)"
+  else
+    for t in ٣٠ ３０; do   # Arabic-Indic, fullwidth
+      build_id "$W" "\"$t\""; canned
+      run in_dir "$W" env LC_ALL="$loc" "$VERIFY" "$MERGE"
+      check "timeoutSeconds \"$t\" under LC_ALL=$loc → rc 2, named on stderr" fails_with 2 \
+        "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$t'"
+      check "… nothing polled" bash -c "[ ! -s '$CANNED/calls.log' ]"
+    done
+  fi
+  for t in 9223372036854775807 99999999999999999999 86401 000000000000000000086401; do
+    build_id "$W" "\"$t\""; canned
+    run in_dir "$W" "$VERIFY" "$MERGE"
+    check "timeoutSeconds \"$t\" → rc 2, over the cap of a day" fails_with 2 \
+      "verify-deploy: .deploy.verify.timeoutSeconds must be at most 86400 (a day), got '$t'"
+    check "… nothing polled" bash -c "[ ! -s '$CANNED/calls.log' ]"
+  done
+  build_id "$W" '"086400"'; canned body "{\"commit\":\"$MERGE\"}"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds \"086400\": a day, a leading zero → polled, rc 0" says 0 "VERIFIED: $URL reports $MERGE"
   deploy "$W" '{ "trigger": "merge-to-base", "verify": { "mode": "build-id" } }'
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "build-id without buildIdUrl → rc 2, named on stderr" fails_with 2 "mode=build-id needs .deploy.verify.buildIdUrl"

@@ -227,7 +227,9 @@
             },
             "timeoutSeconds": {
               "type": "integer",
-              "description": "How long to poll before reporting the deploy unverified (not failed). Default 600."
+              "minimum": 0,
+              "maximum": 86400,
+              "description": "How long to poll before reporting the deploy unverified (not failed). Default 600, at most a day."
             },
             "workflow": {
               "type": "string",

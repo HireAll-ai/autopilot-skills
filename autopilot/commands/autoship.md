@@ -51,7 +51,8 @@ Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the con
   re-run this command. PRs this chat opened in other, initialized repos still ship (Step 0).
 - **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md` and
   run it. `/autoship` needs the tracker/review/deploy sections populated to run at all.
-- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing) → surface it, **STOP**.
+- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing, or a config that can't be read
+  or isn't one JSON object — merge-conflict markers: fix it, or re-run with `--reconfigure`) → surface it, **STOP**.
 
 **Shell state does not persist between Bash calls** — substitute config values literally into each
 command rather than relying on variables from an earlier call (`<merge-sha>` included: once captured
@@ -360,7 +361,7 @@ when it exits:
 | **1** | `BROKEN` — a deploy run failed, or the build-id endpoint was unreachable the whole window | **hard STOP**: skip 5.5 / 5.6 / 6, surface it, offer the **revert recipe** |
 | **10** | `UNVERIFIED` — old build still answering at the deadline, no push run observed, mode `none`, or the live build contains `<merge-sha>` but also reverts it | **unverified** (below) |
 | **12** | `COMMIT_UNKNOWN` — the endpoint answers but its commit reads `unknown`/empty (the build arg never arrived — **not** a failed deploy) | if it printed a `restartedAt` **after** the merge time, count it as deployed and say the evidence was the restart, not the commit; else **unverified** |
-| **2** | config/usage error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number, `build-id` without `buildIdUrl`) | fix the config, re-run |
+| **2** | config/usage error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of ASCII digits or is over 86400 (a day), `build-id` without `buildIdUrl`) | fix the config, re-run |
 
 `github-run` only counts runs triggered by the **push** of `<merge-sha>` to `<base>` (never "the
 latest run" or a same-SHA manual run), filtered to `.deploy.verify.workflow` when set. Without it,
