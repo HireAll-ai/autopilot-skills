@@ -6,7 +6,9 @@ branch + protection, ticket prefix, commit style, health URL, and a deploy workf
 
 1. **Start from what exists.** With `--reconfigure`, Read the current
    `.claude/autopilot.config.json` and treat its values as the defaults; the draft only refreshes
-   what can be autodetected. Without a config, the draft is the starting point.
+   what can be autodetected. Without a config, the draft is the starting point — and so with one the
+   loader's stderr calls broken (not JSON, not one object: merge-conflict markers): what you can still
+   read in it are suggestions to confirm, not defaults.
 2. **Confirm in one compact message, not one question per field.** Show the detected values and fill
    the gaps the detector can't know. Prefer `AskUserQuestion` for the choices:
    - `tracker.type` / `tracker.mcp` / `tracker.shipStatus` (+ `shipStatusVia` when the board gates it) —

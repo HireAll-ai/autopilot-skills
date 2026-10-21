@@ -99,7 +99,10 @@ rest: tracker type + MCP + ship status, review gate, deploy URLs, whether to ena
 
 The commands load it with **one** call at Step 0.0 — `autopilot-config.sh load` checks the init marker
 (exit 4 if missing) and prints the config (exit 0) or an autodetected draft (exit 3) to stdout, so the
-agent reads the config once into context instead of re-querying it per value. The interview itself
+agent reads the config once into context instead of re-querying it per value. A config it can't read
+or that isn't one JSON object (merge-conflict markers) stops it with exit 2 and the cause on stderr —
+the broken text never reaches the agent; `--reconfigure` still works on one, starting the interview
+from the draft. The interview itself
 lives in [`lib/config-interview.md`](lib/config-interview.md) and is only read when needed.
 
 Preview / inspect via the loader (resolve the plugin dir with `claude plugin root autopilot`):
