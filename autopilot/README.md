@@ -180,6 +180,9 @@ Before changing `autopilot-config.sh` or `typecheck.sh`, run `autopilot/test/con
 the bash a stock Mac runs them with): in throwaway repos and offline (`gh`, `curl`, `npx` stubbed), it checks `load`'s exit
 codes, `get`, `validate`, `AUTOPILOT_REPO`, the typecheck cache and `detect`'s backlog probe (a `curl` answering from canned
 files: where the MCP server comes from, `${BACKLOG_*}`, the token, up / refused / down / unusable), and exits 1 if any of them broke.
+Before changing `verify-deploy.sh`, run `autopilot/test/verify-deploy.sh` the same way: with `curl`, `gh` and `sleep` stubbed
+it runs every mode against a throwaway clone — the merge, a later commit that contains it (fetched too), a revert, the
+deadline, an unknown commit, deploy runs green or failed, usage errors — and checks each exit code.
 
 Long waits (CI watch, merge queue, deploy verify) are run with `run_in_background` — the Bash tool caps
 foreground calls at 10 minutes. `/autodev`'s local reviewers and QA run as **parallel report-only
