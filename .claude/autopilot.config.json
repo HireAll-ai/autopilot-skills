@@ -30,7 +30,7 @@
   "commands": {
     "install": "",
     "typecheck": "for f in autopilot/lib/*.sh autopilot/test/*.sh autopilot/test/bin/gh; do bash -n \"$f\" || exit 1; done && jq -e . .claude-plugin/marketplace.json autopilot/.claude-plugin/plugin.json autopilot/schema/autopilot.config.schema.json >/dev/null",
-    "test": "autopilot/test/stacked-merge.sh",
+    "test": "autopilot/test/stacked-merge.sh && autopilot/test/config.sh",
     "testFilter": "",
     "build": "",
     "dev": "",
