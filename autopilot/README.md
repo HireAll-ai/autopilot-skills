@@ -174,6 +174,9 @@ merge still pending. A ticket shared by several PRs moves only once all of them 
 `autopilot-config.sh`, `typecheck.sh` and `verify-deploy.sh` all take `AUTOPILOT_REPO=<dir>` to act
 on another checkout than the cwd — how `/autoship` handles a PR in a sibling repo without `cd`.
 
+Before changing `/autoship`'s merge steps (stack order, Steps 0.5, 4, 4.1), run `autopilot/test/stacked-merge.sh`: it ships a
+PR stack against a local bare repo and a `gh` stub, and exits 1 if a PR got closed, calls ran out of order or a branch was deleted under an open PR.
+
 Long waits (CI watch, merge queue, deploy verify) are run with `run_in_background` — the Bash tool caps
 foreground calls at 10 minutes. `/autodev`'s local reviewers and QA run as **parallel report-only
 subagents**; the main agent applies the fixes. `/autopilot` loads the config once and passes
