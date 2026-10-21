@@ -50,7 +50,7 @@ the recorder degrades (falls back to the non-video pass, or keeps `.webm`). See 
 [`.github/workflows/check.yml`](.github/workflows/check.yml) runs on every PR and on pushes to `main`,
 on `ubuntu-latest` and `macos-latest`: the typecheck read from `.claude/autopilot.config.json`
 (`.commands.typecheck`, piped to `bash`, so CI and the local gate can't drift apart), then
-`autopilot/test/stacked-merge.sh` and `autopilot/test/config.sh` (the tests of `.commands.test`) — on
+`autopilot/test/stacked-merge.sh`, `autopilot/test/config.sh` and `autopilot/test/verify-deploy.sh` (the tests of `.commands.test`) — on
 macOS a second time under `/bin/bash` 3.2, the bash a stock Mac runs the plugin's scripts with. Its two jobs,
 `check (ubuntu-latest)` and `check (macos-latest)`, are this repo's `.git.protection.requiredChecks`;
 rename them in both places. Whether branch protection on `main` requires them is a maintainer's call.
@@ -73,6 +73,7 @@ autopilot/                          # the plugin
   schema/autopilot.config.schema.json
   test/stacked-merge.sh, test/bin/gh          # local check of /autoship's stack merge (bare repo + gh stub)
   test/config.sh                              # smoke test of autopilot-config.sh + typecheck.sh (temp repos, offline)
+  test/verify-deploy.sh                       # smoke test of verify-deploy.sh (temp repos, curl/gh stubs)
   README.md
 ```
 

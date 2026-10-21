@@ -1,7 +1,7 @@
 # Runs on every PR and on main the same gates /autodev and /autoship run locally, from
 # .claude/autopilot.config.json: the typecheck and the tests (autopilot/test/stacked-merge.sh,
-# autopilot/test/config.sh). The job names are .git.protection.requiredChecks in that config —
-# rename them together.
+# autopilot/test/config.sh, autopilot/test/verify-deploy.sh). The job names are
+# .git.protection.requiredChecks in that config — rename them together.
 name: check
 
 on:
@@ -50,6 +50,9 @@ jobs:
       - name: config.sh
         run: autopilot/test/config.sh
 
+      - name: verify-deploy.sh
+        run: autopilot/test/verify-deploy.sh
+
       - name: /bin/bash 3.2 for the steps below
         if: runner.os == 'macOS'
         # they put this dir first on PATH: `bash` then resolves to /bin/bash, so the gh stub, the bare
@@ -71,3 +74,9 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/bash-3.2:$PATH"
           bash autopilot/test/config.sh
+
+      - name: verify-deploy.sh under /bin/bash 3.2
+        if: runner.os == 'macOS'
+        run: |
+          export PATH="$RUNNER_TEMP/bash-3.2:$PATH"
+          bash autopilot/test/verify-deploy.sh
