@@ -178,7 +178,8 @@ Before changing `/autoship`'s merge steps (stack order, Steps 0.5, 4, 4.1), run 
 PR stack against a local bare repo and a `gh` stub, and exits 1 if a PR got closed, calls ran out of order or a branch was deleted under an open PR.
 Before changing `autopilot-config.sh` or `typecheck.sh`, run `autopilot/test/config.sh` — under `/bin/bash` too on a Mac (3.2,
 the bash a stock Mac runs them with): in throwaway repos and offline (`gh`, `curl`, `npx` stubbed), it checks `load`'s exit
-codes, `get`, `validate`, `AUTOPILOT_REPO` and the typecheck cache, and exits 1 if any of them broke.
+codes, `get`, `validate`, `AUTOPILOT_REPO`, the typecheck cache and `detect`'s backlog probe (a `curl` answering from canned
+files: where the MCP server comes from, `${BACKLOG_*}`, the token, up / refused / down / unusable), and exits 1 if any of them broke.
 
 Long waits (CI watch, merge queue, deploy verify) are run with `run_in_background` — the Bash tool caps
 foreground calls at 10 minutes. `/autodev`'s local reviewers and QA run as **parallel report-only

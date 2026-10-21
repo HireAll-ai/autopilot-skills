@@ -3,7 +3,8 @@
 # run starts with them, on the user's machine — a stock Mac runs them under /bin/bash 3.2. Each scenario
 # runs the scripts in throwaway git repos the way the commands do. No network: gh, curl and npx on PATH
 # are stubs that log their call and fail, so `detect` stays offline and `validate` takes its jq
-# fallback; HOME is a temp dir, so no ~/.claude.json is read.
+# fallback — only in the detect scenario does curl answer the backlog probe, from canned files. HOME is
+# a temp dir, so the only ~/.claude.json read is the one the detect scenario writes.
 #
 # Usage: autopilot/test/config.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
 #   load            valid config + init marker → rc 0 and the config / no config → rc 3 and a detected
@@ -13,6 +14,9 @@
 #   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: outside any repo, inside another repo
 #   typecheck       empty command → skipped; pass → cached pass; a changed tree or --force → re-run;
 #                   a failing command → its exit code
+#   detect          the backlog probe: where the MCP server comes from (local scope, an approved
+#                   .mcp.json, user scope; AUTOPILOT_BACKLOG_URL over them), ${BACKLOG_*} expansion, the
+#                   token replacing Authorization, up / refused / down / unusable and the draft of each
 # Exit 0 when every check passes, 1 otherwise. Needs git ≥ 2.28 and jq.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -27,6 +31,22 @@ for tool in gh curl npx; do
   { echo '#!/bin/sh'; echo "echo \"$tool \$*\" >> '$T/stubs.log'"; echo "echo '$tool: stubbed out by test/config.sh' >&2; exit 1"; } > "$T/bin/$tool"
   chmod +x "$T/bin/$tool"
 done
+# … except while the detect scenario puts a reply in $T/curl: then curl records the URL, the repoPath
+# and the headers it read on stdin, and answers its body plus the code, the way -w '\n%{http_code}'
+# prints them; code 000 is no answer (curl exits 7)
+cat > "$T/bin/curl" <<EOF
+#!/bin/sh
+echo "curl \$*" >> '$T/stubs.log'
+C='$T/curl'
+if [ ! -f "\$C/code" ]; then echo 'curl: stubbed out by test/config.sh' >&2; exit 1; fi
+for a in "\$@"; do
+  case "\$a" in http://*|https://*) echo "\$a" > "\$C/url";; repoPath=*) echo "\${a#repoPath=}" > "\$C/repoPath";; esac
+done
+cat > "\$C/headers"
+code=\$(cat "\$C/code")
+[ "\$code" != 000 ] || { printf '\n000'; exit 7; }
+cat "\$C/body"; printf '\n%s' "\$code"
+EOF
 export PATH="$T/bin:$PATH" HOME="$T/home"
 unset CLAUDE_CONFIG_DIR AUTOPILOT_REPO AUTOPILOT_CONFIG AUTOPILOT_BACKLOG_URL AUTOPILOT_BACKLOG_TOKEN
 # keep the user's git config (signing, hooks, default branch) out of it
@@ -217,8 +237,148 @@ scenario_typecheck() {
   check "a failure isn't cached → runs again, 7 again" bash -c "[ $RC = 7 ] && [ \"\$(grep -cxF '$F' '$TC_RUNS')\" = 2 ]"
 }
 
+# answer <code> [body] — the tracker's reply to detect's probe; `answer none`: curl fails, as offline
+answer() {
+  rm -rf "$T/curl"; [ "$1" != none ] || return 0
+  mkdir "$T/curl"; printf '%s' "${2-}" > "$T/curl/body"; echo "$1" > "$T/curl/code"
+}
+probed() { [ "$(cat "$T/curl/url")" = "$1/api/projects" ]; }             # probed <tracker url>
+sent() { [ "$(grep -v '^$' "$T/curl/headers")" = "$(printf '%s\n' "$@")" ]; }  # sent <header …>: those on stdin, no other
+answered() { got "$1" && probed "$2"; }                                  # answered <backlog's output> <tracker url>
+# scopes <project key> <local server> <user server> [project extras] — ~/.claude.json with the backlog
+# MCP server in local scope (under <project key>) and user scope; "" leaves one out
+scopes() {
+  jq -n --arg p "$1" --argjson l "${2:-null}" --argjson u "${3:-null}" --argjson x "${4:-null}" '
+    { projects: { ($p): ((if $l then { mcpServers: { backlog: $l } } else {} end) + ($x // {})) } }
+    + (if $u then { mcpServers: { backlog: $u } } else {} end)' > "$HOME/.claude.json"
+}
+http_server() { jq -nc --arg url "$1" '{ type: "http", url: $url }'; }
+
+scenario_detect() {
+  local R="$T/detect" W="$T/detect-wt" US="$HOME/.claude/settings.json" L U H
+  L=$(http_server https://local.example/mcp); U=$(http_server https://user.example/mcp)
+  repo "$R" true; git -C "$R" worktree add -q -b wt "$W"; mkdir -p "$HOME/.claude"
+  jq -n '{ mcpServers: { backlog: { type: "http", url: "https://repo.example/mcp" } } }' > "$R/.mcp.json"
+  answer 200 '[{"key":"AS"}]'
+
+  scopes "$R" "$L" "$U"; echo '{ "enabledMcpjsonServers": ["backlog"] }' > "$US"
+  run in_dir "$R" "$CONFIG" backlog
+  check "local scope, an approved .mcp.json, user scope → local scope's tracker, up AS" answered "up AS" https://local.example
+  check "… asked for this repo's projects: repoPath=<repo>" bash -c "[ \"\$(cat '$T/curl/repoPath')\" = '$R' ]"
+  scopes "$R" "" "$U"
+  run in_dir "$R" "$CONFIG" backlog
+  check "no local scope → the repo's .mcp.json, approved in the user's settings" answered "up AS" https://repo.example
+  rm "$US"
+  run in_dir "$R" "$CONFIG" backlog
+  check "… not approved → user scope" answered "up AS" https://user.example
+  scopes "$R" "" "$U" '{ "enabledMcpjsonServers": ["backlog"] }'
+  run in_dir "$R" "$CONFIG" backlog
+  check "… approved by the project's entry in ~/.claude.json → .mcp.json" answered "up AS" https://repo.example
+  scopes "$R" "" "$U"; echo '{ "enableAllProjectMcpServers": true }' > "$R/.claude/settings.local.json"
+  run in_dir "$R" "$CONFIG" backlog
+  check "… approved by .claude/settings.local.json (enableAllProjectMcpServers) → .mcp.json" answered "up AS" https://repo.example
+  mv "$R/.claude/settings.local.json" "$R/.claude/settings.json"
+  run in_dir "$R" "$CONFIG" backlog
+  check "… approved only by the repo's committed .claude/settings.json → user scope" answered "up AS" https://user.example
+  rm "$R/.claude/settings.json"
+  echo '{ "enabledMcpjsonServers": ["backlog"] }' > "$US"; echo '{ "disabledMcpjsonServers": ["backlog"] }' > "$R/.claude/settings.local.json"
+  run in_dir "$R" "$CONFIG" backlog
+  check "… approved by the user, rejected in settings.local.json → user scope" answered "up AS" https://user.example
+  rm "$US" "$R/.claude/settings.local.json"
+  scopes "$R" "$L" ""
+  run in_dir "$W" "$CONFIG" backlog
+  check "in a worktree, local scope under its main checkout → that tracker" answered "up AS" https://local.example
+  check "… repoPath=<the main checkout>, which the tracker knows the repo by" bash -c "[ \"\$(cat '$T/curl/repoPath')\" = '$R' ]"
+  rm "$HOME/.claude.json" "$R/.mcp.json"
+  run in_dir "$R" "$CONFIG" backlog
+  check "no backlog MCP server anywhere → the local tracker at 127.0.0.1:4400" answered "up AS" http://127.0.0.1:4400
+  check "… no headers sent" sent
+
+  H=$(jq -nc '{ type: "http", url: "${BACKLOG_TEST_URL:-https://fallback.example}/mcp", headers: {
+    "Authorization": "Bearer ${BACKLOG_TEST_TOKEN}", "X-Backlog-Org": "${AUTOPILOT_TEST_ORG:-none}",
+    "X-Home": "${HOME}", "X-Other": "${OTHER_TEST_SECRET:-dflt}", "X-Unset": "${BACKLOG_TEST_UNSET}",
+    "X-Empty": "", "X-Crlf": "a\r\nX-Evil: 1" } }')
+  scopes "$R" "$H" ""
+  run in_dir "$R" env BACKLOG_TEST_TOKEN=tok-1 AUTOPILOT_TEST_ORG=acme OTHER_TEST_SECRET=leaked "$CONFIG" backlog
+  check "\${BACKLOG_*:-default} unset in the url → the default" answered "up AS" https://fallback.example
+  check "… headers: BACKLOG_*/AUTOPILOT_* expanded, other names as written or their default, CR/LF dropped" \
+    sent "Authorization: Bearer tok-1" "X-Backlog-Org: acme" 'X-Home: ${HOME}' "X-Other: dflt" \
+      'X-Unset: ${BACKLOG_TEST_UNSET}' "X-Empty;" "X-Crlf: aX-Evil: 1"
+  run in_dir "$R" env BACKLOG_TEST_URL=https://set.example "$CONFIG" backlog
+  check "\${BACKLOG_*} set in the url → its value" answered "up AS" https://set.example
+
+  scopes "$R" "$(jq -nc '{ type: "http", url: "https://local.example/mcp", headers: { authorization: "Bearer old", "X-Backlog-Org": "acme" } }')" ""
+  run in_dir "$R" "$CONFIG" backlog
+  check "the server's own headers go to its tracker" sent "authorization: Bearer old" "X-Backlog-Org: acme"
+  run in_dir "$R" env AUTOPILOT_BACKLOG_TOKEN=tok-env "$CONFIG" backlog
+  check "AUTOPILOT_BACKLOG_TOKEN replaces its Authorization (any case), keeps the rest" \
+    sent "X-Backlog-Org: acme" "Authorization: Bearer tok-env"
+  check "… the token on stdin only, not in curl's argv" bash -c "! grep -q tok-env '$T/stubs.log'"
+  run in_dir "$R" env AUTOPILOT_BACKLOG_URL=https://env.example/mcp/ AUTOPILOT_BACKLOG_TOKEN=tok-env "$CONFIG" backlog
+  check "AUTOPILOT_BACKLOG_URL over the MCP server → that tracker, /mcp/ dropped" answered "up AS" https://env.example
+  check "… the server's headers stay with its own tracker, the token goes" sent "Authorization: Bearer tok-env"
+
+  scopes "$R" "$L" ""
+  answer 200 $'[\n  { "key": "AS" },\n  { "key": "WEB" }\n]'
+  run in_dir "$R" "$CONFIG" backlog
+  check "200 with a body over several lines → up AS WEB" got "up AS WEB"
+  answer 200 '[]'
+  run in_dir "$R" "$CONFIG" backlog
+  check "200, no project for this repo → up, no keys" got "up "
+  answer 200 '<html>Sign in</html>'
+  run in_dir "$R" "$CONFIG" backlog
+  check "200 that isn't a JSON array → down <url> 200" got "down https://local.example 200"
+  for code in 401 403; do
+    answer "$code" '{"error":"unauthorized"}'
+    run in_dir "$R" "$CONFIG" backlog
+    check "$code → refused <url> $code" got "refused https://local.example $code"
+  done
+  for code in 302 500 000; do
+    answer "$code" ''
+    run in_dir "$R" "$CONFIG" backlog
+    check "$code → down <url> $code" got "down https://local.example $code"
+  done
+  answer none
+  run in_dir "$R" "$CONFIG" backlog
+  check "curl fails with no output → down <url> 000" got "down https://local.example 000"
+  scopes "$R" "$(http_server 'https://me:secret@hosted.example/mcp?token=t#top')" ""; answer 401 ''
+  run in_dir "$R" "$CONFIG" backlog
+  check "credentials, query and /mcp left out of the url it probes and prints" answered "refused https://hosted.example 401" https://hosted.example
+  scopes "$R" '{ "command": "npx", "args": ["-y", "backlog-mcp"] }' ""; answer none
+  run in_dir "$R" "$CONFIG" backlog
+  check "a stdio server, nothing answers → unusable" got unusable
+  answer 200 '[{"key":"AS"}]'
+  run in_dir "$R" "$CONFIG" backlog
+  check "… the local tracker answers → up AS from 127.0.0.1:4400" answered "up AS" http://127.0.0.1:4400
+  rm "$HOME/.claude.json"; answer none
+  run in_dir "$R" "$CONFIG" backlog
+  check "no server, nothing answers → nothing printed" got ""
+
+  scopes "$R" "$L" ""; answer 200 '[{"key":"AS"}]'
+  run in_dir "$R" "$CONFIG" detect
+  check "detect, up AS → tracker backlog, keyPrefix AS, the key in _note" jq -e '.tracker.type == "backlog"
+    and .tracker.mcp == "mcp__backlog" and .tracker.keyPrefix == "AS" and (._note | contains("bound to this repo: AS —"))' "$T/out"
+  answer 200 '[{"key":"AS"},{"key":"WEB"}]'
+  run in_dir "$R" "$CONFIG" detect
+  check "detect, up AS WEB → tracker backlog, keyPrefix left to init" jq -e '.tracker.type == "backlog"
+    and .tracker.keyPrefix == "" and (._note | contains("bound to this repo: AS WEB —"))' "$T/out"
+  answer 401 ''
+  run in_dir "$R" "$CONFIG" detect
+  check "detect, refused 401 → tracker backlog, no keyPrefix, why in _note" jq -e '.tracker.type == "backlog"
+    and .tracker.keyPrefix == "" and (._note | contains("refused autodetect (HTTP 401)"))' "$T/out"
+  answer 000 ''
+  run in_dir "$R" "$CONFIG" detect
+  check "detect, down 000 → tracker none, 'gave no answer' in _note" jq -e '.tracker.type == "none"
+    and (._note | contains("configured at https://local.example") and contains("gave no answer"))' "$T/out"
+  scopes "$R" '{ "command": "npx" }' ""; answer none
+  run in_dir "$R" "$CONFIG" detect
+  check "detect, unusable → tracker none, 'no http URL' in _note" jq -e '.tracker.type == "none"
+    and (._note | contains("with no http URL detect can use"))' "$T/out"
+  rm -rf "$T/curl" "$HOME/.claude.json" "$HOME/.claude"
+}
+
 echo "autopilot-config.sh and typecheck.sh under bash $(bash -c 'echo "$BASH_VERSION"')"
-ALL="load get validate autopilot-repo typecheck"
+ALL="load get validate autopilot-repo typecheck detect"
 for s in ${*:-$ALL}; do
   case " $ALL " in *" $s "*) ;; *) echo "unknown scenario: $s (have: $ALL)" >&2; exit 2;; esac
   echo "$s"
