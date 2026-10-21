@@ -45,9 +45,19 @@ the backlog issue) — `--video` for one run, `qa.video.enabled` for every run. 
 soft deps — installed once in `~/.autopilot/playwright`, Playwright survives plugin updates; without them
 the recorder degrades (falls back to the non-video pass, or keeps `.webm`). See the plugin README.
 
+## CI
+
+[`.github/workflows/check.yml`](.github/workflows/check.yml) runs on every PR and on pushes to `main`,
+on `ubuntu-latest` and `macos-latest`: the typecheck read from `.claude/autopilot.config.json`
+(`.commands.typecheck`, piped to `bash`, so CI and the local gate can't drift apart), then
+`autopilot/test/stacked-merge.sh` — on macOS a second time under `/bin/bash` 3.2. Its two jobs,
+`check (ubuntu-latest)` and `check (macos-latest)`, are this repo's `.git.protection.requiredChecks`;
+rename them in both places. Whether branch protection on `main` requires them is a maintainer's call.
+
 ## Layout
 
 ```
+.github/workflows/check.yml         # CI: typecheck + stacked-merge.sh on Linux and macOS (bash 3.2 too)
 .claude-plugin/marketplace.json     # this marketplace, lists the autopilot plugin
 autopilot/                          # the plugin
   .claude-plugin/plugin.json
