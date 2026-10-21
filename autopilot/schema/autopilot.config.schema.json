@@ -92,7 +92,7 @@
         "deleteBranchOnMerge": {
           "type": "boolean",
           "default": true,
-          "description": "Pass --delete-branch on merge."
+          "description": "Delete the PR's head branch after the merge, once the open PRs based on it are retargeted to the base branch (/autoship Step 4.1)."
         },
         "mergeQueue": {
           "type": "boolean",
