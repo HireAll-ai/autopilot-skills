@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "tracker": {
+    "type": "backlog",
+    "mcp": "mcp__backlog",
+    "keyPrefix": "AS",
+    "keyRequired": false,
+    "autoCreateIssue": false,
+    "shipStatus": "done",
+    "shipStatusVia": [],
+    "followUps": "ask"
+  },
+  "git": {
+    "baseBranch": "main",
+    "branchPattern": "{key_lower}-{slug}",
+    "mergeStrategy": "squash",
+    "deleteBranchOnMerge": true,
+    "protection": {
+      "requiredChecks": [],
+      "strict": false,
+      "requireThreadResolution": false,
+      "requiredApprovals": 0,
+      "adminBypassAllowed": false
+    },
+    "commitStyle": "conventional"
+  },
+  "commands": {
+    "install": "",
+    "typecheck": "for f in autopilot/lib/*.sh autopilot/test/*.sh autopilot/test/bin/gh; do bash -n \"$f\" || exit 1; done && jq -e . .claude-plugin/marketplace.json autopilot/.claude-plugin/plugin.json autopilot/schema/autopilot.config.schema.json >/dev/null",
+    "test": "autopilot/test/stacked-merge.sh",
+    "testFilter": "",
+    "build": "",
+    "dev": "",
+    "lint": null
+  },
+  "review": {
+    "gate": "none",
+    "localReviewers": []
+  },
+  "deploy": {
+    "trigger": "none"
+  },
+  "qa": {
+    "browseSkill": "/browse",
+    "qaSkill": "/qa",
+    "qaOnlySkill": "/qa-only",
+    "video": {
+      "enabled": false,
+      "format": "mp4",
+      "surface": "context",
+      "dir": ".context/video",
+      "maxSeconds": 90
+    }
+  },
+  "rules": {
+    "docs": [
+      "README.md",
+      "autopilot/README.md"
+    ],
+    "planDir": "docs/plans"
+  }
+}
