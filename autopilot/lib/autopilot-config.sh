@@ -9,7 +9,7 @@
 #   autopilot-config.sh path                 # print resolved config path (exists or not)
 #   autopilot-config.sh exists               # exit 0 if config present, 1 if not
 #   autopilot-config.sh dump                 # cat the config JSON
-#   autopilot-config.sh get <jqfilter> [def] # print a value (raw); [def] if null/missing
+#   autopilot-config.sh get <jqfilter> [def] # print a value (raw); [def] if null/missing; rc 2 if the config is missing or broken
 #   autopilot-config.sh detect               # print an autodetected DRAFT config to stdout
 #   autopilot-config.sh backlog              # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 #   autopilot-config.sh validate [file]      # validate a config against the schema
@@ -44,12 +44,24 @@ _cmd_exists() { [ -f "$CONFIG_PATH" ]; }
 
 _cmd_dump() { _cmd_exists || _die "no config at $CONFIG_PATH (run: autopilot-config.sh detect)"; cat "$CONFIG_PATH"; }
 
+# the config is there and holds exactly one JSON object, else rc 2 naming the cause. Slurped: `jq
+# empty`, and jq 1.6's `-e` on its own, pass an empty file.
+_check_config() {
+  _cmd_exists || _die "no config at $CONFIG_PATH"
+  [ -r "$CONFIG_PATH" ] || _die "cannot read config at $CONFIG_PATH"
+  jq -es 'map(type) == ["object"]' "$CONFIG_PATH" >/dev/null 2>&1 && return 0
+  jq empty "$CONFIG_PATH" >/dev/null 2>&1 || _die "invalid JSON at $CONFIG_PATH"
+  _die "config at $CONFIG_PATH is not one JSON object"
+}
+
 # get <jqfilter> [default] — raw output; [default] applies ONLY when the value is null/absent.
 # A present value is returned verbatim, including false / 0 / "" — booleans MUST survive (a plain
 # `// empty` would collapse false and null alike and let the default invert a configured boolean).
+# A config that is missing or broken fails (rc 2) rather than read as every default; a broken
+# filter still reads as absent.
 _cmd_get() {
   local filter="${1:?usage: get <jqfilter> [default]}"; local def="${2-}"
-  _cmd_exists || _die "no config at $CONFIG_PATH"
+  _check_config
   local sent="__AUTOPILOT_ABSENT__" out
   out="$(jq -r "try ($filter) catch null | if . == null then \"$sent\" else . end" "$CONFIG_PATH" 2>/dev/null || printf '%s' "$sent")"
   if [ "$out" = "$sent" ]; then printf '%s\n' "$def"; else printf '%s\n' "$out"; fi

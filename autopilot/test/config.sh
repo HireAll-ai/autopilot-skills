@@ -9,11 +9,12 @@
 # Usage: autopilot/test/config.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
 #   load            valid config + init marker → rc 0 and the config / no config → rc 3 and a detected
 #                   draft / no init marker → rc 4
-#   get             get <filter> [default], path, exists, dump
+#   get             get <filter> [default], path, exists, dump; get on a config that isn't JSON, is
+#                   empty or [] or can't be read (skipped as root) → rc 2, the cause named
 #   validate        a valid config, then broken ones: not JSON, keys missing, another version
 #   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: outside any repo, inside another repo
 #   typecheck       empty command → skipped; pass → cached pass; a changed tree or --force → re-run;
-#                   a failing command → its exit code
+#                   a failing command → its exit code; a config that isn't JSON → rc 2, not skipped
 #   detect          the backlog probe: where the MCP server comes from (local scope, an approved
 #                   .mcp.json, user scope; AUTOPILOT_BACKLOG_URL over them), ${BACKLOG_*} expansion, the
 #                   token replacing Authorization, up / refused / down / unusable and the draft of each
@@ -59,6 +60,7 @@ FAILS=0 RC=""
 
 ok() { echo "  ok      $*"; }
 nok() { echo "  FAIL    $*"; FAILS=$((FAILS + 1)); }
+skip() { echo "  skip    $*"; }
 check() { local what=$1; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else nok "$what"; last_run; fi; }
 last_run() {
   echo "          last run: rc=$RC"
@@ -148,6 +150,26 @@ scenario_get() {
   run in_dir "$R" "$CONFIG" dump
   check "dump → the config" printed_config "$R"
 
+  local C="$R/.claude/autopilot.config.json"
+  printf '{ "git": {\n<<<<<<< HEAD\n' > "$C"
+  run in_dir "$R" "$CONFIG" get '.git.baseBranch' main
+  check "a config that isn't JSON: get → rc 2, 'invalid JSON at <path>' on stderr" fails_with 2 "invalid JSON at $C"
+  check "… not the default" bash -c "[ ! -s '$T/out' ]"
+  : > "$C"
+  run in_dir "$R" "$CONFIG" get '.git.baseBranch' main
+  check "an empty config: get → rc 2, not one JSON object" fails_with 2 "config at $C is not one JSON object"
+  echo '[]' > "$C"
+  run in_dir "$R" "$CONFIG" get '.git.baseBranch' main
+  check "a config that is []: get → rc 2, not one JSON object" fails_with 2 "config at $C is not one JSON object"
+  if [ "$(id -u)" = 0 ]; then
+    skip "a config it can't read (root reads any file)"
+  else
+    fixture true > "$C"; chmod 000 "$C"
+    run in_dir "$R" "$CONFIG" get '.git.baseBranch' main
+    check "a config it can't read: get → rc 2, cannot read" fails_with 2 "cannot read config at $C"
+    chmod 644 "$C"
+  fi
+
   rm "$R/.claude/autopilot.config.json"
   run in_dir "$R" "$CONFIG" exists
   check "no config: exists → rc 1" rc_is 1
@@ -235,6 +257,11 @@ scenario_typecheck() {
   check "a failing command → its exit code 7, no pass" bash -c "[ $RC = 7 ] && ! grep -q 'typecheck: .*pass' '$T/out'"
   run in_dir "$F" "$TYPECHECK"
   check "a failure isn't cached → runs again, 7 again" bash -c "[ $RC = 7 ] && [ \"\$(grep -cxF '$F' '$TC_RUNS')\" = 2 ]"
+
+  printf '{ "commands": \n' > "$F/.claude/autopilot.config.json"
+  run in_dir "$F" "$TYPECHECK"
+  check "a config that isn't JSON → rc 2, the config named on stderr" fails_with 2 "invalid JSON at $F/.claude/autopilot.config.json"
+  check "… not skipped, not run" bash -c "! grep -q '^typecheck:' '$T/out' && [ \"\$(grep -cxF '$F' '$TC_RUNS')\" = 2 ]"
 }
 
 # answer <code> [body] — the tracker's reply to detect's probe; `answer none`: curl fails, as offline
