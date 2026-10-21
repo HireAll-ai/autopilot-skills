@@ -17,7 +17,7 @@
 #        12 build-id endpoint answers but the commit reads unknown/empty; the last response's
 #                      restartedAt value (if .deploy.verify.restartedAtJq is set) is printed so the
 #                      caller can compare it to the merge time.
-#        2  usage / config error
+#        2  usage / config error — no config, or one that isn't a JSON object, among them
 set -uo pipefail
 
 SHA="${1:-}"; [ -n "$SHA" ] || { echo "usage: verify-deploy.sh <merge-sha>" >&2; exit 2; }
@@ -26,6 +26,13 @@ if [ -n "${AUTOPILOT_REPO:-}" ]; then   # config + `gh repo view` below follow t
   cd -- "$AUTOPILOT_REPO" || exit 2; export AUTOPILOT_REPO="$PWD"
 fi
 cfg() { "$SCRIPT_DIR/autopilot-config.sh" get "$1" "${2-}"; }
+
+# `get` inside $(…) loses its exit code: no config would read as mode none, a broken one as every
+# default — both rc 10, so check it first: one JSON object, slurped (`jq empty`, and jq 1.6's `-e`
+# on its own, pass an empty file).
+CONF="$("$SCRIPT_DIR/autopilot-config.sh" path)" || exit 2
+"$SCRIPT_DIR/autopilot-config.sh" exists || { echo "verify-deploy: no config at $CONF" >&2; exit 2; }
+jq -es 'map(type) == ["object"]' "$CONF" >/dev/null 2>&1 || { echo "verify-deploy: invalid JSON at $CONF" >&2; exit 2; }
 
 TRIGGER="$(cfg '.deploy.trigger' 'none')"
 MODE="$(cfg '.deploy.verify.mode' '')"

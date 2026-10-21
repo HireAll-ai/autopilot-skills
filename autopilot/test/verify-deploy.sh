@@ -10,8 +10,8 @@
 # A scenario that waits out the deadline sets .deploy.verify.timeoutSeconds to 1, the others to 30.
 #
 # Usage: autopilot/test/verify-deploy.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
-#   usage           no <merge-sha>, build-id without buildIdUrl, an unknown mode, a missing
-#                   AUTOPILOT_REPO, `gh repo view` failing → rc 2
+#   usage           no <merge-sha>, no config, a config that isn't JSON or is empty, build-id without
+#                   buildIdUrl, an unknown mode, a missing AUTOPILOT_REPO, `gh repo view` failing → rc 2
 #   none            mode none, set or by default → rc 10, UNVERIFIED, nothing polled
 #   build-id        the merge (full or short sha) → rc 0; the build flips on the 2nd poll → rc 0; a later
 #                   commit that contains it → rc 0, one only origin has after a fetch too; a revert of
@@ -19,7 +19,8 @@
 #                   or not JSON → rc 12 with restartedAt; unreachable → rc 1
 #   github-run      the deploy run green → rc 0, failed → rc 1; only the named workflow counts, by
 #                   name or file; none named → every push run, listed twice; no run in time → rc 10
-#   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: <dir>'s config and git
+#   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: <dir>'s config and git; <dir> without a
+#                   config → rc 2
 # Exit 0 when every check passes, 1 otherwise. Needs git ≥ 2.28 and jq.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -139,6 +140,15 @@ scenario_usage() {
   repos "$W"; build_id "$W"; canned
   run in_dir "$W" "$VERIFY"
   check "no <merge-sha> → rc 2, usage on stderr" fails_with 2 "usage: verify-deploy.sh <merge-sha>"
+  rm "$W/.claude/autopilot.config.json"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "no config → rc 2, its path on stderr" fails_with 2 "verify-deploy: no config at $W/.claude/autopilot.config.json"
+  printf '%s\n' '{ "deploy": { "trigger": "merge-to-base",' > "$W/.claude/autopilot.config.json"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "a config that isn't JSON → rc 2, named on stderr" fails_with 2 "verify-deploy: invalid JSON at $W/.claude/autopilot.config.json"
+  : > "$W/.claude/autopilot.config.json"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "an empty config → rc 2, invalid JSON" fails_with 2 "verify-deploy: invalid JSON at $W/.claude/autopilot.config.json"
   deploy "$W" '{ "trigger": "merge-to-base", "verify": { "mode": "build-id" } }'
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "build-id without buildIdUrl → rc 2, named on stderr" fails_with 2 "mode=build-id needs .deploy.verify.buildIdUrl"
@@ -278,6 +288,9 @@ scenario_autopilot-repo() {
   run in_dir "$B" env AUTOPILOT_REPO=../ap-repo "$VERIFY" "$merge"
   check "inside another repo (mode none there), a relative <dir> → <dir>'s build-id, rc 0" \
     bash -c "[ $RC = 0 ] && grep -qx 'verify-deploy: mode=build-id sha=$merge timeout=30s' '$T/out'"
+  run in_dir "$W" env AUTOPILOT_REPO="$E" "$VERIFY" "$merge"
+  check "a <dir> without a config, from a repo with one → rc 2, <dir>'s path on stderr" \
+    fails_with 2 "verify-deploy: no config at $E/.claude/autopilot.config.json"
 }
 
 echo "verify-deploy.sh under bash $(bash -c 'echo "$BASH_VERSION"')"
