@@ -10,7 +10,8 @@
 # A scenario that waits out the deadline sets .deploy.verify.timeoutSeconds to 1, the others to 30.
 #
 # Usage: autopilot/test/verify-deploy.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
-#   usage           no <merge-sha>, no config, a config that isn't JSON or is empty, build-id without
+#   usage           no <merge-sha>, no config, a config that isn't JSON, is empty or [] or can't be read
+#                   (skipped as root), a timeoutSeconds that isn't a whole number, build-id without
 #                   buildIdUrl, an unknown mode, a missing AUTOPILOT_REPO, `gh repo view` failing → rc 2
 #   none            mode none, set or by default → rc 10, UNVERIFIED, nothing polled
 #   build-id        the merge (full or short sha) → rc 0; the build flips on the 2nd poll → rc 0; a later
@@ -69,6 +70,7 @@ FAILS=0 RC=""
 
 ok() { echo "  ok      $*"; }
 nok() { echo "  FAIL    $*"; FAILS=$((FAILS + 1)); }
+skip() { echo "  skip    $*"; }
 check() { local what=$1; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else nok "$what"; last_run; fi; }
 last_run() {
   echo "          last run: rc=$RC"
@@ -148,7 +150,28 @@ scenario_usage() {
   check "a config that isn't JSON → rc 2, named on stderr" fails_with 2 "verify-deploy: invalid JSON at $W/.claude/autopilot.config.json"
   : > "$W/.claude/autopilot.config.json"
   run in_dir "$W" "$VERIFY" "$MERGE"
-  check "an empty config → rc 2, invalid JSON" fails_with 2 "verify-deploy: invalid JSON at $W/.claude/autopilot.config.json"
+  check "an empty config → rc 2, not one JSON object" fails_with 2 "verify-deploy: config at $W/.claude/autopilot.config.json is not one JSON object"
+  echo '[]' > "$W/.claude/autopilot.config.json"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "a config that is [] → rc 2, not one JSON object" fails_with 2 "verify-deploy: config at $W/.claude/autopilot.config.json is not one JSON object"
+  if [ "$(id -u)" = 0 ]; then
+    skip "a config it can't read (root reads any file)"
+  else
+    build_id "$W"; chmod 000 "$W/.claude/autopilot.config.json"
+    run in_dir "$W" "$VERIFY" "$MERGE"
+    check "a config it can't read → rc 2, cannot read" fails_with 2 "verify-deploy: cannot read config at $W/.claude/autopilot.config.json"
+    chmod 644 "$W/.claude/autopilot.config.json"
+  fi
+  for t in '"10m"' 1.5; do
+    build_id "$W" "$t"; canned
+    run in_dir "$W" "$VERIFY" "$MERGE"
+    check "timeoutSeconds $t → rc 2, named on stderr" fails_with 2 \
+      "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$(jq -r . <<<"$t")'"
+    check "… nothing polled" bash -c "[ ! -s '$CANNED/calls.log' ]"
+  done
+  build_id "$W" "$(jq -n --arg t "PATH[\$(touch '$T/ran')]" '$t')"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds with a \$(…) in a subscript → rc 2, the command not run" bash -c "[ $RC = 2 ] && [ ! -e '$T/ran' ]"
   deploy "$W" '{ "trigger": "merge-to-base", "verify": { "mode": "build-id" } }'
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "build-id without buildIdUrl → rc 2, named on stderr" fails_with 2 "mode=build-id needs .deploy.verify.buildIdUrl"

@@ -67,7 +67,8 @@ case-insensitively — `pos-42-…` carries `POS-42`), `<checks>` = `.git.protec
 `Ticket: <KEY>` line in the PR body). The PR title is the squash subject, so it follows the same rule.
 **`<typecheck>`** = `"${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"` — passes trivially when
 `.commands.typecheck` is empty and is a **no-op on a working tree that already passed** (cached by
-tree hash), so every gate below that re-asserts it costs nothing unless the code changed.
+tree hash), so every gate below that re-asserts it costs nothing unless the code changed. A config
+that is missing or isn't one JSON object (merge-conflict markers) fails it with rc 2, named on stderr.
 
 **A PR in another repo** runs against its checkout `<dir>` — never `cd` there: `git -C <dir> …`;
 `gh pr <cmd> <PR-url>` in place of `<PR>` (the URL carries the repo) and `-R <owner>/<repo>` for
@@ -359,7 +360,7 @@ when it exits:
 | **1** | `BROKEN` — a deploy run failed, or the build-id endpoint was unreachable the whole window | **hard STOP**: skip 5.5 / 5.6 / 6, surface it, offer the **revert recipe** |
 | **10** | `UNVERIFIED` — old build still answering at the deadline, no push run observed, mode `none`, or the live build contains `<merge-sha>` but also reverts it | **unverified** (below) |
 | **12** | `COMMIT_UNKNOWN` — the endpoint answers but its commit reads `unknown`/empty (the build arg never arrived — **not** a failed deploy) | if it printed a `restartedAt` **after** the merge time, count it as deployed and say the evidence was the restart, not the commit; else **unverified** |
-| **2** | config/usage error, named on stderr (no config, one that isn't JSON, `build-id` without `buildIdUrl`) | fix the config, re-run |
+| **2** | config/usage error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number, `build-id` without `buildIdUrl`) | fix the config, re-run |
 
 `github-run` only counts runs triggered by the **push** of `<merge-sha>` to `<base>` (never "the
 latest run" or a same-SHA manual run), filtered to `.deploy.verify.workflow` when set. Without it,
