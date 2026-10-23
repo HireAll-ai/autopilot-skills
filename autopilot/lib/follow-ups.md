@@ -34,8 +34,9 @@ What this run saw and left undone — step 2 decides which of them may become an
 - `TODO` / `FIXME` lines this diff added: `git diff <base>...HEAD | grep -E '^\+.*(TODO|FIXME)'`.
 
 Not candidates at all: anything already done, vague wishes ("improve performance"), restatements of
-the PR, items the operator already said no to, **what this run broke** (fix it in this PR before it
-ships — that's not follow-up work), and **siblings of a bug this run fixed**: the same mistake in
+the PR, items the operator already said no to, **what this run broke before its merge** (fix it in
+this PR before it ships — that's not follow-up work; found after the merge, it's a regression on the
+deployed server, step 2), and **siblings of a bug this run fixed**: the same mistake in
 another place is fixed in the same PR (`/autodev` Rules). Only when that would have pushed the PR past
 S do the places left become **one** candidate that names them all — never one per place — and it still
 has to pass the bar.
