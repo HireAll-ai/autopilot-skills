@@ -38,8 +38,8 @@ the PR, items the operator already said no to, **what this run broke before its 
 this PR before it ships — that's not follow-up work; found after the merge, it's a regression on the
 deployed server, step 2), and **siblings of a bug this run fixed**: the same mistake in
 another place is fixed in the same PR (`/autodev` Rules). Only when that would have pushed the PR past
-S do the places left become **one** candidate that names them all — never one per place — and it still
-has to pass the bar.
+S, or they turned up after the merge, do the places left become **one** candidate that names them all
+— never one per place — and it still has to pass the bar.
 
 ## 2. The bar — an issue, or Not filed
 
