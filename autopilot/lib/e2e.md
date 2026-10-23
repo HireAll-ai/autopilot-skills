@@ -58,7 +58,8 @@ Non-UI flows: assert the end effect (DB row / API response), not the page.
   scenario. Still failing → do **NOT** present the feature as green; carry the red e2e into the
   handoff as a blocker.
 - **deployed** — a scenario failing **because of this ship** → **blocks Step 6**; report the failing
-  step + screenshot/video and offer revert or fix-forward. Pre-existing breakage → include, don't block.
+  step + screenshot/video and offer revert or fix-forward. Pre-existing breakage → in the report, don't
+  block; a follow-up only when it breaks or blocks a user (`lib/follow-ups.md`), else **Not filed**.
 
 ## 4. Report + surface the video
 

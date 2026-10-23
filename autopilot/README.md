@@ -66,13 +66,23 @@ config; with none of these, it tries `http://127.0.0.1:4400`.
   is attached with the tracker's `attach_video` and plays on the issue's page (below).
 
 **Follow-ups** (`tracker.followUps`, default `ask`): at the end of `/autodev`, `/autoship` and — once —
-`/autopilot`, the run drafts follow-up tasks from what it deliberately left undone (deferred scope,
-report-only findings, gates that didn't run, TODOs it added), routes each to the backlog project whose
-scope covers it, sizes it (which picks its command on Start), drops duplicates (tickets in any status, work
-already on the base branch, open PRs), and asks which to file — in Constructor's agent chat it proposes
-them with the tracker's `propose_issues` instead, which shows each as a card with Backlog / Todo buttons
-that file it with a click.
-Nothing is filed without a pick. Procedure: [`lib/follow-ups.md`](lib/follow-ups.md).
+`/autopilot`, the run drafts follow-up tasks from what it deliberately left undone, routes each to the
+backlog project whose scope covers it, sizes it (which picks its command on Start), drops duplicates
+(tickets in any status, found by key terms and the files they touch, not only by title; work already on
+the base branch; open PRs), and asks which to file — in Constructor's agent chat it proposes them with
+the tracker's `propose_issues` instead, which shows each as a card with Backlog / Todo buttons that file
+it with a click. Only what matters becomes an issue:
+- **the bar** — a bug that breaks or blocks a user, a regression or failure on the deployed server, or
+  scope deliberately cut with the decision recorded;
+- **the cap** — at most 3 per run (`/autopilot` proposes once, for both phases), the strongest first;
+- **same mistake, same PR** — siblings of a bug the run fixed are fixed in that PR, never filed one per
+  place.
+
+The rest — medium/low findings, polish, extra tests and CI, refactors, hardening against unlikely
+inputs, what's over the cap or a duplicate — is listed in the report under **Not filed**; the worthwhile
+ones go into the project's Intake (`add_requirement`, kind `bug` or `idea`) without a question, since
+the inbox is where loose notes wait for you. No issue is filed without a pick. Procedure:
+[`lib/follow-ups.md`](lib/follow-ups.md).
 
 ## Relevance check — first, every run
 

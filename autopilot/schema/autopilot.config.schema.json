@@ -60,7 +60,7 @@
         "followUps": {
           "enum": ["ask", "off"],
           "default": "ask",
-          "description": "Follow-up tasks proposed at the end of /autodev, /autoship and /autopilot (lib/follow-ups.md). 'ask' (default): draft them, let the operator pick, file the picked ones via the tracker MCP (or print them when the tracker can't take them). 'off': don't propose follow-ups."
+          "description": "Follow-up tasks proposed at the end of /autodev, /autoship and /autopilot (lib/follow-ups.md). 'ask' (default): draft only what passes the bar (a bug that breaks or blocks a user, a regression or failure on the deployed server, scope cut with the decision recorded), at most 3 per run, let the operator pick, file the picked ones via the tracker MCP (or print them when the tracker can't take them); the rest is listed as Not filed, the worthwhile ones put into the backlog project's Intake. 'off': don't propose follow-ups."
         }
       }
     },
