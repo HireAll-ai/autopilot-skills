@@ -1,7 +1,7 @@
 ---
 description: Autonomous feature build that ends in a verified handoff — first checks the task is still relevant (asks when in doubt), then you decide how to plan, build and test; the command fixes what must be true when you stop — tests green per the repo's strategy, local review + browser QA done (or --e2e scenarios, optionally on video), a live preview link and a test plan, and a DRAFT PR with CI pre-warmed. Then STOPS for your verification. Never ships — a draft PR is not mergeable. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[spec/plan file | feature description] [--e2e] [--video] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__attach_video
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, WebFetch, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__add_requirement, mcp__backlog__list_requirements, mcp__backlog__attach_video
 ---
 
 # /autodev — build it, prove it, hand it over (never ships)
@@ -85,7 +85,7 @@ asking.
 - **Never ship.** Draft PR only: never mark it ready, merge, deploy, or move the ticket — unless the
   operator picks closing it at Step 0.5.
 - **No test backdoors in product code** (prefill routes, auth bypasses) just to make verification
-  easier — offer them as a follow-up instead.
+  easier — name the one you'd want under **Not filed** instead (an Intake `idea`).
 - **Autonomy.** Run to completion without check-ins; make routine calls yourself and record them for
   the handoff. **STOP and ask** only on: a doubt that the task is still relevant (Step 0.5); an
   architecture fork with no clear winner; destructive or irreversible scope; a 3rd-party API contract
@@ -94,12 +94,28 @@ asking.
   `.qa.qaSkill`), `.qa.browseSkill`. One that's configured but doesn't resolve means that gate did
   **not** run: say so in the handoff. Don't install skills mid-run.
 
+**Follow-ups — only what matters.** The same four rules in `lib/follow-ups.md`, `/autodev` and `/autoship`:
+- **The bar.** A follow-up issue is one of: a bug that breaks or blocks a user; a regression or
+  failure on the deployed server; scope deliberately cut from this task, with the decision recorded.
+  Medium/low findings, pre-existing breakage that blocks no one, polish, extra tests and CI, refactors
+  and hardening against unlikely inputs don't become issues: the run's report lists them under
+  **Not filed**, and the worthwhile ones go into the project's Intake (`mcp__backlog__add_requirement`,
+  kind `bug` or `idea`) when the backlog tools resolve.
+- **The cap.** At most **3** follow-up issues per run (`/autopilot` proposes once, for both phases).
+  The strongest stay; the rest go to **Not filed**.
+- **Same mistake, same PR.** When a bug you fix has siblings — the same pattern elsewhere in the
+  repo — fix them in this PR while it stays XS–S. Never a follow-up per place.
+- **Dedup by meaning.** Before proposing, search the tracker by the key terms and the files the
+  follow-up touches, not only its title (`list_issues` with `query`), in every status. An open or
+  done issue that covers it drops it; **Not filed** names that issue.
+
 ## Done means — verify every item before the handoff
 
 1. **Built** — the feature as specified, committed on the branch.
 2. **Green** — `<typecheck>` and `<test>` (or the targeted `.commands.testFilter`) pass.
 3. **Reviewed** — every `.review.localReviewers` entry ran on `git diff <base>...HEAD`; its
-   high-confidence findings are fixed.
+   high-confidence findings are fixed — with their siblings (same mistake, same PR). The rest go
+   through the follow-up bar: most end up **Not filed**.
 4. **Browser-checked (UI changes)** — `.qa.qaOnlySkill` ran against the local dev server, scoped to
    the touched flows, and the bugs it found are fixed and re-verified. With `--e2e` (or `--video`),
    instead: Read `${CLAUDE_PLUGIN_ROOT}/lib/e2e.md` and run its **local** mode (≤3 fix attempts per
@@ -155,7 +171,7 @@ a status change; the tracker follows the workspace's status from Constructor on 
              gates that did NOT run: <none | which + why>
   Video:     <paths | gif in PR>[ · attached to <KEY>: N] | n/a: why
   Risks:     <open questions, blockers>
-  Follow-ups: <N proposed below | none>
+  Follow-ups: <N proposed below (at most 3) | none>   Not filed: <N[, M → Intake] | none>
 
   TEST IT
     Preview:    <url — signed in, on the feature | command/curl for non-UI work>
@@ -170,7 +186,8 @@ a status change; the tracker follows the workspace's status from Constructor on 
 ```
 
 Then, unless `--preloaded` (`/autopilot` proposes them once at its end), **Read
-`${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks — the operator's picks are
-filed now, the rest is printed.
+`${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks — only what passes the bar, at
+most 3; the operator's picks are filed now, the rest is listed as **Not filed** (the worthwhile ones put
+into Intake).
 
 Do not continue past this gate — wait for the user.

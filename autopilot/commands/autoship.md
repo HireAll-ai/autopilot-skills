@@ -1,7 +1,7 @@
 ---
 description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — re-checks the ticket is still wanted, flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--video] [--reconfigure]"
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__attach_video
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__add_requirement, mcp__backlog__list_requirements, mcp__backlog__attach_video
 ---
 
 # /autoship — ship → clean → merge → deploy → ship-status (autonomous)
@@ -404,7 +404,8 @@ Only with `--qa` (else skip silently). Code is merged — **report-only** (`.qa.
   transcript out of this context), quick tier (critical/high), scoped to the flows this PR touched;
   it returns findings only.
 - **critical/high regression caused by this ship** → **blocks Step 6**; report + offer revert or
-  fix-forward. medium/low or pre-existing → include, don't block.
+  fix-forward. Medium/low or pre-existing → in the report, don't block; a follow-up only when it passes
+  the bar (Step 7) — a pre-existing bug that breaks or blocks a user — else **Not filed** or Intake.
 
 ## Step 5.6 — Optional scenario browser e2e (`--e2e`, `--video`)
 
@@ -412,8 +413,9 @@ Only with `--e2e` or `--video` (else skip silently). Otherwise **Read `${CLAUDE_
 and follow its **deployed** mode against the deploy URL: 2–4 scenarios from the diff + `<KEY>` + PR
 body, recorded with `--video` or `.qa.video.enabled` (and attached to a backlog issue), **report-only**
 (merged code — fixes are follow-up PRs). A scenario failing **because of this ship** → **blocks Step
-6** + offer revert or fix-forward; pre-existing breakage → include, don't block. Write the run into
-the final report.
+6** + offer revert or fix-forward; pre-existing breakage → in the report, don't block; a follow-up only
+when it breaks or blocks a user (Step 7), else **Not filed** or Intake. Write the run into the final
+report.
 
 ## Step 6 — Report + move the ticket to the ship status
 
@@ -428,7 +430,7 @@ Print the report — one block per PR, in ship order:
   QA:        <--qa not passed | ok | N findings (blocking: yes/no)>
   E2E:       <--e2e not passed | N scenarios ok | M failed (blocking: yes/no)>
   Video:     <path(s) | gif in PR>[ · attached to <KEY>: N] | n/a: why
-  Follow-ups: <N proposed in Step 7 | none>
+  Follow-ups: <N proposed in Step 7 (at most 3) | none>   Not filed: <N[, M → Intake] | none>
 
   Not shipped: <owner>/<repo>#<n> — <why: stopped at Step X | depends on #m | left out: no local
                checkout / repo not initialized | already merged / closed | held / closed at the
@@ -465,10 +467,28 @@ it; report the blocker. Tracker MCP unavailable / key not tracked → **skip** w
 ## Step 7 — Follow-ups
 
 Skip when `--preloaded` (`/autopilot` proposes them once, after its combined report). Otherwise
-**Read `${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks from this ship — the
-report-only QA / e2e findings and canary notes that didn't block, a deploy left UNVERIFIED, review
-threads resolved as "later", PRs that weren't shipped and why. Runs after the ticket move, so it never
-holds up the ship; the operator's picks are filed, the rest is printed.
+**Read `${CLAUDE_PLUGIN_ROOT}/lib/follow-ups.md`** and propose follow-up tasks from this ship — only
+what passes the bar below: the fix-forward of a canary problem or a QA / e2e failure this ship caused,
+a pre-existing bug that breaks or blocks a user, scope cut with the decision recorded (a review thread
+resolved as "later" counts only then). The other QA / e2e findings and canary notes are **Not filed**
+(the worthwhile ones put into Intake); a deploy left UNVERIFIED and PRs that weren't shipped are
+already in the report (`Deploy:`, `Not shipped:`) — not follow-ups. Runs after the ticket move, so it
+never holds up the ship; the operator's picks are filed, the rest is printed.
+
+**Follow-ups — only what matters.** The same four rules in `lib/follow-ups.md`, `/autodev` and `/autoship`:
+- **The bar.** A follow-up issue is one of: a bug that breaks or blocks a user; a regression or
+  failure on the deployed server; scope deliberately cut from this task, with the decision recorded.
+  Medium/low findings, pre-existing breakage that blocks no one, polish, extra tests and CI, refactors
+  and hardening against unlikely inputs don't become issues: the run's report lists them under
+  **Not filed**, and the worthwhile ones go into the project's Intake (`mcp__backlog__add_requirement`,
+  kind `bug` or `idea`) when the backlog tools resolve.
+- **The cap.** At most **3** follow-up issues per run (`/autopilot` proposes once, for both phases).
+  The strongest stay; the rest go to **Not filed**.
+- **Same mistake, same PR.** When a bug you fix has siblings — the same pattern elsewhere in the
+  repo — fix them in this PR while it stays XS–S. Never a follow-up per place.
+- **Dedup by meaning.** Before proposing, search the tracker by the key terms and the files the
+  follow-up touches, not only its title (`list_issues` with `query`), in every status. An open or
+  done issue that covers it drops it; **Not filed** names that issue.
 
 ---
 
@@ -483,7 +503,7 @@ holds up the ship; the operator's picks are filed, the rest is printed.
   a two-PR stack ends with the second PR open and based on `<base>`, rebased with
   `git rebase --onto` (Step 0.5), and shipped in turn.
 - Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on
-  strict protection. The e2e videos (Step 5.6, backlog), the ticket move (Step 6) and the follow-ups
-  the operator picks (Step 7) are the only places `/autoship` writes to the tracker.
+  strict protection. The e2e videos (Step 5.6, backlog), the ticket move (Step 6), the follow-ups
+  the operator picks and the Intake entries (Step 7) are the only places `/autoship` writes to the tracker.
 - Project-independent: all facts from `.claude/autopilot.config.json`. To share the commands
   themselves across repos, install the `autopilot` plugin: `claude plugin marketplace add HireAll-ai/autopilot-skills`.
