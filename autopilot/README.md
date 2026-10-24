@@ -185,7 +185,7 @@ merge still pending. A ticket shared by several PRs moves only once all of them 
 | script | used by | what it saves |
 |---|---|---|
 | `lib/typecheck.sh` | every `<typecheck>` gate in `/autodev` + `/autoship` | runs `.commands.typecheck` at most once per working tree (cache keyed by tree hash under the per-worktree git dir), so re-asserting the gate after a no-op rebase/push is free. A config that is missing or isn't one JSON object fails it with rc 2 — `autopilot-config.sh get` refuses it rather than read every key as its default |
-| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `build-id` also counts a later commit that contains the merge and doesn't revert it (`git merge-base --is-ancestor`, after a fetch of the base branch when git doesn't know the commit — a builder that deploys every push may build the PR merged right after); `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown / 2 usage or config error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of seconds from 0 to 86400 (a day), too — `autopilot-config.sh timeout` checks it, the check `validate` runs as well, so a config that validates isn't refused after the merge). `timeoutSeconds` 0 looks once in either mode and doesn't wait |
+| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `build-id` also counts a later commit that contains the merge and doesn't revert it (`git merge-base --is-ancestor`, after a fetch of the base branch when git doesn't know the commit — a builder that deploys every push may build the PR merged right after); `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken (a deploy run failed, or the build-id endpoint was down on every poll, 3 or more) / 10 unverified (an endpoint down on the only poll or two of a short window, too) / 12 commit unknown / 2 usage or config error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of seconds from 0 to 86400 (a day), too — `autopilot-config.sh timeout` checks it, the check `validate` runs as well, so a config that validates isn't refused after the merge). `timeoutSeconds` 0 looks once in either mode and doesn't wait |
 
 `autopilot-config.sh`, `typecheck.sh` and `verify-deploy.sh` all take `AUTOPILOT_REPO=<dir>` to act
 on another checkout than the cwd — how `/autoship` handles a PR in a sibling repo without `cd`.
@@ -198,7 +198,7 @@ codes, `get`, `validate` (with its `timeoutSeconds` check) and `timeout`, `AUTOP
 files: where the MCP server comes from, `${BACKLOG_*}`, the token, up / refused / down / unusable), and exits 1 if any of them broke.
 Before changing `verify-deploy.sh`, run `autopilot/test/verify-deploy.sh` the same way: with `curl`, `gh` and `sleep` stubbed
 it runs every mode against a throwaway clone — the merge, a later commit that contains it (fetched too), a revert, the
-deadline, `timeoutSeconds` 0, an unknown commit, deploy runs green or failed, usage errors — and checks each exit code.
+deadline, `timeoutSeconds` 0, an unknown commit, an endpoint down on one poll or on all, deploy runs green or failed, usage errors — and checks each exit code.
 
 Long waits (CI watch, merge queue, deploy verify) are run with `run_in_background` — the Bash tool caps
 foreground calls at 10 minutes. `/autodev`'s local reviewers and QA run as **parallel report-only
@@ -257,7 +257,9 @@ paragraph: a **live preview link** to the running dev server (URL read from the 
 output, `curl`-checked before it's printed, the server left up), routed through
 `qa.preview.authPath` (e.g. `/dev-login`) so the link lands past the login wall and on the changed
 surface — plus a **test plan** at `.context/testplan-<KEY>.md`: 5–10 `do X → expect Y` checks, what
-could **not** be verified locally, and where to look when it's wrong.
+could **not** be verified locally, and where to look when it's wrong. The server runs in a process
+group of its own and is stopped by that group (`kill -- -<pid>`), never by `pkill` / `killall` on a
+name: on a machine where several agents run as one user, that stops their servers too.
 
 When reaching the state under test takes more than ~3 manual steps, it also hands over a
 **fast-path link** that lands directly in that state — an existing deep link, or a scratch seed

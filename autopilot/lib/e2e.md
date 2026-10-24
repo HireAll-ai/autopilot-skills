@@ -56,7 +56,10 @@ Non-UI flows: assert the end effect (DB row / API response), not the page.
 - **local** — fix-loop (this is the "tested" guarantee): find the cause, fix the code (commit with
   `<subject>`, per `.git.commitStyle`), `<typecheck>`, re-run that scenario. **Max 3 attempts** per
   scenario. Still failing → do **NOT** present the feature as green; carry the red e2e into the
-  handoff as a blocker.
+  handoff as a blocker. A fix the dev server doesn't reload → restart it as `/autodev` started it:
+  stop its group, `kill -- -<pid>`, then `bash -c 'set -m; <dev> > <log> 2>&1 & echo $!'` (a new
+  PID). Never `pkill` / `killall` / `kill $(pgrep …)` by a name or pattern — on a shared machine they
+  stop other agents' servers too.
 - **deployed** — a scenario failing **because of this ship** → **blocks Step 6**; report the failing
   step + screenshot/video and offer revert or fix-forward. Pre-existing breakage → in the report, don't
   block; a follow-up only when it breaks or blocks a user (`lib/follow-ups.md`), else **Not filed**.

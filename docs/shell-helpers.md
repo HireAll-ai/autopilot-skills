@@ -44,3 +44,7 @@ safely, and what makes the same script behave differently from one machine to th
   string, then `sed` it into the file. Passing it through `jq --argjson` changes it.
 - Locale-dependent cases run under the first of `en_US.UTF-8` or `C.UTF-8` that `locale -a` lists,
   and are skipped when neither is there.
+- `verify-deploy.sh` counts its deadline in whole seconds of `date +%s`, so a `timeoutSeconds` of 1
+  can end at once, after a single poll. A test that needs several polls before the deadline (the
+  stubbed 15 s wait takes 0.1 s) sets 2 or 3 and checks the poll count, as the build-id cases do:
+  how many polls failed decides between `BROKEN` (3 or more) and `UNVERIFIED`.

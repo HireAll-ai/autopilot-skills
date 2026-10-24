@@ -229,7 +229,7 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 86400,
-              "description": "How long to poll before reporting the deploy unverified (not failed). Default 600, at most a day; 0 looks once and doesn't wait."
+              "description": "How long to poll before reporting the deploy unverified (not failed). Default 600, at most a day; 0 looks once and doesn't wait. A build-id endpoint down on every poll counts as a broken deploy only after 3 polls (one every 15 s); in a shorter window it is unverified."
             },
             "workflow": {
               "type": "string",
