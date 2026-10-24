@@ -17,7 +17,7 @@
 #   validate        a valid config, then broken ones: not JSON, empty, [], keys missing, another version;
 #                   a timeoutSeconds past a day, not digits, negative, in Arabic-Indic digits under a UTF-8
 #                   locale (skipped without one) → rc 2, the range named; absent, null, 0, 86400, "30" → rc 0;
-#                   timeout prints its seconds: 600 by default, "030" → 30, 30.0 → 30
+#                   timeout prints its seconds: 600 by default, "030" → 30, 30.0 → 30, -0 → 0
 #   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: outside any repo, inside another repo
 #   typecheck       empty command → skipped; pass → cached pass; a changed tree or --force → re-run;
 #                   a failing command → its exit code; a config that isn't JSON → rc 2, not skipped
@@ -278,6 +278,9 @@ scenario_validate() {
   jq '.deploy.verify.timeoutSeconds = "__T__"' "$C" | sed 's/"__T__"/30.0/' > "$T/timeout.json"
   run in_dir "$R" "$CONFIG" timeout "$T/timeout.json"
   check "timeout 30.0 → 30" got 30
+  jq '.deploy.verify.timeoutSeconds = "__T__"' "$C" | sed 's/"__T__"/-0/' > "$T/timeout.json"
+  run in_dir "$R" "$CONFIG" timeout "$T/timeout.json"
+  check "timeout -0 → 0, digits only" got 0
 }
 
 scenario_autopilot-repo() {

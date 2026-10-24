@@ -29,6 +29,10 @@ safely, and what makes the same script behave differently from one machine to th
   digits (`٣٠`). A digit check in bash has to spell out `0123456789`.
 - **bash arithmetic evaluates strings.** `$(( x + 0 ))` reads `abc` as a variable name. A value like
   `PATH[$(cmd)]` runs `cmd`. Past 64 bits, the number wraps silently.
+- **A child bash can write to stderr when it succeeds.** When `LC_ALL` names a locale the system
+  lacks, which is common in containers, glibc's bash prints a `setlocale` warning at every start.
+  Capture only a helper's stdout for a value (`"$(helper 2>/dev/null)"`). Read its stderr separately,
+  and only when it fails, as `verify-deploy.sh` does.
 
 ## Pitfalls when testing
 

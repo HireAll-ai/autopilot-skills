@@ -348,7 +348,7 @@ _cmd_detect() {
 
 # timeout [file] — .deploy.verify.timeoutSeconds of the config (or <file>), in seconds: 600 when absent
 # or null, else a whole number from 0 to 86400 (a day), as a JSON number or a string of ASCII digits
-# ("030" is 30, not octal); anything else → rc 2 naming the key, the value and the range.
+# ("030" is 30, not octal; -0 is 0); anything else → rc 2 naming the key, the value and the range.
 # verify-deploy.sh polls that long and `validate` runs this too, so a value it would refuse after the
 # merge fails validation first. Checked by type in jq, never as text: jq 1.6 prints a big number as
 # 1e+20 and jq 1.7 prints 30.0 as written, and under a UTF-8 locale bash's [0-9] matches ٣ or ０.
@@ -357,7 +357,7 @@ _cmd_timeout() {
   _check_config "$f"
   out="$(jq -r '(try .deploy.verify.timeoutSeconds catch null) as $t
     | if $t == null then 600
-      elif ($t | type) == "number" and $t == ($t | floor) and $t >= 0 and $t <= 86400 then $t | floor
+      elif ($t | type) == "number" and $t == ($t | floor) and $t >= 0 and $t <= 86400 then ($t | floor) + 0
       elif ($t | type) == "string" and ($t | test("\\A[0-9]+\\z")) and ($t | tonumber) <= 86400 then $t | tonumber
       else "bad \(if ($t | type) == "string" then $t else $t | tojson end)" end' "$f")"
   case "$out" in
