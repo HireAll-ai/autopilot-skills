@@ -63,7 +63,7 @@ rename them in both places. Whether branch protection on `main` requires them is
 autopilot/                          # the plugin
   .claude-plugin/plugin.json
   commands/{init,autodev,autoship,autopilot}.md # reference ${CLAUDE_PLUGIN_ROOT}/lib/...
-  lib/autopilot-config.sh                     # config loader (load/ensure/get/detect/validate)
+  lib/autopilot-config.sh                     # config loader (load/ensure/get/detect/validate/timeout)
   lib/typecheck.sh                            # typecheck, cached per working tree
   lib/verify-deploy.sh                        # /autoship Step 5.1 deploy proof (background)
   lib/config-interview.md, lib/e2e.md         # read on demand (first run / --e2e only)

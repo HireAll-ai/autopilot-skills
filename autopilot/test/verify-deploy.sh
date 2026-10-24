@@ -11,16 +11,18 @@
 #
 # Usage: autopilot/test/verify-deploy.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
 #   usage           no <merge-sha>, no config, a config that isn't JSON, is empty or [] or can't be read
-#                   (skipped as root), a timeoutSeconds that isn't a whole number (Arabic-Indic or fullwidth
-#                   digits under a UTF-8 locale too, skipped without one) or is over a day, build-id without
+#                   (skipped as root), a timeoutSeconds that isn't a whole number of seconds from 0 to 86400
+#                   (negative, past a day as a JSON number or a string, Arabic-Indic or fullwidth digits under
+#                   a UTF-8 locale, skipped without one) → one message naming the range, build-id without
 #                   buildIdUrl, an unknown mode, a missing AUTOPILOT_REPO, `gh repo view` failing → rc 2
 #   none            mode none, set or by default → rc 10, UNVERIFIED, nothing polled
 #   build-id        the merge (full or short sha) → rc 0; the build flips on the 2nd poll → rc 0; a later
 #                   commit that contains it → rc 0, one only origin has after a fetch too; a revert of
 #                   it → rc 10; an older or unknown commit until the deadline → rc 10; unknown, empty
-#                   or not JSON → rc 12 with restartedAt; unreachable → rc 1
+#                   or not JSON → rc 12 with restartedAt; unreachable → rc 1; timeoutSeconds 0 → one poll
 #   github-run      the deploy run green → rc 0, failed → rc 1; only the named workflow counts, by
-#                   name or file; none named → every push run, listed twice; no run in time → rc 10
+#                   name or file; none named → every push run, listed twice; no run in time → rc 10;
+#                   timeoutSeconds 0 → listed once, then rc 0 on a finished run, rc 10 on none
 #   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: <dir>'s config and git; <dir> without a
 #                   config → rc 2
 # Exit 0 when every check passes, 1 otherwise. Needs git ≥ 2.28 and jq.
@@ -84,6 +86,7 @@ in_dir() { local d=$1; shift; (cd "$d" && "$@"); }
 rc_is() { [ "$RC" = "$1" ]; }
 says() { rc_is "$1" && grep -qxF -- "$2" "$T/out"; }          # says <rc> <a whole line of stdout>
 fails_with() { rc_is "$1" && grep -qF -- "$2" "$T/err"; }
+fails_like() { rc_is "$1" && grep -qE -- "$2" "$T/err"; }     # … <an ERE for a line of stderr>
 called() { [ "$(grep -cxF -- "$1" "$CANNED/calls.log" || true)" = "$2" ]; }   # called <call> <n times>
 called_like() { [ "$(grep -c -- "$1" "$CANNED/calls.log" || true)" = "$2" ]; }  # … <regex> <n times>
 
@@ -139,7 +142,8 @@ repos() {
 }
 
 scenario_usage() {
-  local W="$T/usage"
+  local W="$T/usage" C="$T/usage/.claude/autopilot.config.json"
+  local range="verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds from 0 to 86400, got"
   repos "$W"; build_id "$W"; canned
   run in_dir "$W" "$VERIFY"
   check "no <merge-sha> → rc 2, usage on stderr" fails_with 2 "usage: verify-deploy.sh <merge-sha>"
@@ -163,13 +167,18 @@ scenario_usage() {
     check "a config it can't read → rc 2, cannot read" fails_with 2 "verify-deploy: cannot read config at $W/.claude/autopilot.config.json"
     chmod 644 "$W/.claude/autopilot.config.json"
   fi
-  for t in '"10m"' 1.5; do
+  for t in '"10m"' 1.5 -5 true; do
     build_id "$W" "$t"; canned
     run in_dir "$W" "$VERIFY" "$MERGE"
-    check "timeoutSeconds $t → rc 2, named on stderr" fails_with 2 \
-      "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$(jq -r . <<<"$t")'"
+    check "timeoutSeconds $t → rc 2, the key, the value and the range on stderr" fails_with 2 "$range '$(jq -r . <<<"$t")'"
     check "… nothing polled" bash -c "[ ! -s '$CANNED/calls.log' ]"
   done
+  # written as is: jq would rewrite the literal on the way. jq 1.6 reads it back as 1e+20, jq 1.7 as written
+  build_id "$W" '"__T__"'; sed 's/"__T__"/99999999999999999999/' "$C" > "$C.tmp"; mv "$C.tmp" "$C"; canned
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds 99999999999999999999, a JSON number → rc 2, the range named" \
+    fails_like 2 "^$range '(99999999999999999999|1e\\+20)'\$"
+  check "… nothing polled" bash -c "[ ! -s '$CANNED/calls.log' ]"
   build_id "$W" "$(jq -n --arg t "PATH[\$(touch '$T/ran')]" '$t')"
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "timeoutSeconds with a \$(…) in a subscript → rc 2, the command not run" bash -c "[ $RC = 2 ] && [ ! -e '$T/ran' ]"
@@ -182,16 +191,14 @@ scenario_usage() {
     for t in ٣٠ ３０; do   # Arabic-Indic, fullwidth
       build_id "$W" "\"$t\""; canned
       run in_dir "$W" env LC_ALL="$loc" "$VERIFY" "$MERGE"
-      check "timeoutSeconds \"$t\" under LC_ALL=$loc → rc 2, named on stderr" fails_with 2 \
-        "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$t'"
+      check "timeoutSeconds \"$t\" under LC_ALL=$loc → rc 2, the range named" fails_with 2 "$range '$t'"
       check "… nothing polled" bash -c "[ ! -s '$CANNED/calls.log' ]"
     done
   fi
   for t in 9223372036854775807 99999999999999999999 86401 000000000000000000086401; do
     build_id "$W" "\"$t\""; canned
     run in_dir "$W" "$VERIFY" "$MERGE"
-    check "timeoutSeconds \"$t\" → rc 2, over the cap of a day" fails_with 2 \
-      "verify-deploy: .deploy.verify.timeoutSeconds must be at most 86400 (a day), got '$t'"
+    check "timeoutSeconds \"$t\" → rc 2, over the cap of a day, the range named" fails_with 2 "$range '$t'"
     check "… nothing polled" bash -c "[ ! -s '$CANNED/calls.log' ]"
   done
   build_id "$W" '"086400"'; canned body "{\"commit\":\"$MERGE\"}"
@@ -282,6 +289,16 @@ scenario_build-id() {
   build_id "$W" 1; canned
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "unreachable the whole window → rc 1, BROKEN" says 1 "BROKEN: $URL unreachable for the whole 1s window"
+
+  build_id "$W" 0; canned body "{\"commit\":\"$MERGE\"}"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds 0, the merge live → rc 0" says 0 "VERIFIED: $URL reports $MERGE"
+  check "… one poll, no wait" bash -c "[ \"\$(cat '$CANNED/curl.n')\" = 1 ] && ! grep -q '^sleep' '$CANNED/calls.log'"
+  canned body "{\"commit\":\"$OLD\"}"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds 0, the old build → rc 10, UNVERIFIED" \
+    says 10 "UNVERIFIED: $URL still reports $OLD (not $MERGE or a commit that contains it) after 0s"
+  check "… one poll, no wait" bash -c "[ \"\$(cat '$CANNED/curl.n')\" = 1 ] && ! grep -q '^sleep' '$CANNED/calls.log'"
 }
 
 scenario_github-run() {
@@ -323,6 +340,16 @@ scenario_github-run() {
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "no run until the deadline → rc 10, UNVERIFIED" says 10 "UNVERIFIED: no push run of 'Deploy' observed for $MERGE within 1s"
   check "… nothing watched" bash -c "! grep -q '^gh run watch' '$CANNED/calls.log'"
+
+  github_run "$W" Deploy 0; canned runs.json "$runs" run.101 1 run.102 0
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds 0, the deploy run already finished green → rc 0, VERIFIED" \
+    says 0 "VERIFIED: push run(s) for $MERGE green: Deploy"
+  check "… listed once, no wait" bash -c "[ \"\$(grep -c '^gh api ' '$CANNED/calls.log')\" = 1 ] && ! grep -q '^sleep' '$CANNED/calls.log'"
+  canned
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds 0, no run → rc 10, UNVERIFIED" says 10 "UNVERIFIED: no push run of 'Deploy' observed for $MERGE within 0s"
+  check "… listed once, no wait" bash -c "[ \"\$(grep -c '^gh api ' '$CANNED/calls.log')\" = 1 ] && ! grep -q '^sleep' '$CANNED/calls.log'"
 }
 
 scenario_autopilot-repo() {

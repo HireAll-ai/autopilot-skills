@@ -18,8 +18,8 @@
 #                      restartedAt value (if .deploy.verify.restartedAtJq is set) is printed so the
 #                      caller can compare it to the merge time.
 #        2  usage / config error, named on stderr — no config, one it can't read or that isn't one
-#                      JSON object, a timeoutSeconds that isn't a whole number of ASCII digits or
-#                      is over a day (86400), among them
+#                      JSON object, a timeoutSeconds that isn't a whole number of seconds from 0 to
+#                      86400 (a day), among them
 set -uo pipefail
 
 SHA="${1:-}"; [ -n "$SHA" ] || { echo "usage: verify-deploy.sh <merge-sha>" >&2; exit 2; }
@@ -39,19 +39,14 @@ fi
 TRIGGER="$(cfg '.deploy.trigger' 'none')"
 MODE="$(cfg '.deploy.verify.mode' '')"
 if [ -z "$MODE" ]; then [ "$TRIGGER" = "github-action" ] && MODE="github-run" || MODE="none"; fi
-TIMEOUT="$(cfg '.deploy.verify.timeoutSeconds' '600')"
-# digits only before it meets $(( )): bash arithmetic reads "abc" as a variable and runs the
-# $(…) in a subscript like "PATH[$(cmd)]". The digits are listed: under a UTF-8 locale [0-9] also
-# matches ٣ or ０, which $(( )) then refuses
-case "$TIMEOUT" in ''|*[!0123456789]*) echo "verify-deploy: .deploy.verify.timeoutSeconds must be a whole number of seconds, got '$TIMEOUT'" >&2; exit 2;; esac
-# at most a day, by its digit count first: 64-bit arithmetic wraps silently — a deadline in the past
-# would read as BROKEN after one poll. Leading zeros dropped, so "030" is 30, not octal
-MAX_TIMEOUT=86400
-SECS="${TIMEOUT#"${TIMEOUT%%[!0]*}"}"
-if [ ${#SECS} -gt ${#MAX_TIMEOUT} ] || [ "${SECS:-0}" -gt "$MAX_TIMEOUT" ]; then
-  echo "verify-deploy: .deploy.verify.timeoutSeconds must be at most $MAX_TIMEOUT (a day), got '$TIMEOUT'" >&2; exit 2
+# `autopilot-config.sh timeout` checks it — the same check `validate` runs, so a config that passed
+# validation isn't refused here after the merge — and prints only whole seconds from 0 to 86400: bash
+# arithmetic never sees "abc" (read as a variable, its $(…) run in a subscript like "PATH[$(cmd)]"),
+# nor a number past a day that 64-bit arithmetic would wrap into a deadline in the past
+if ! TIMEOUT="$("$SCRIPT_DIR/autopilot-config.sh" timeout 2>&1)"; then
+  echo "verify-deploy: ${TIMEOUT#autopilot-config: }" >&2; exit 2
 fi
-DEADLINE=$(( $(date +%s) + ${SECS:-0} ))
+DEADLINE=$(( $(date +%s) + $TIMEOUT ))
 echo "verify-deploy: mode=$MODE sha=$SHA timeout=${TIMEOUT}s"
 
 case "$MODE" in
@@ -126,9 +121,10 @@ case "$MODE" in
       gh api "repos/$REPO/actions/runs?head_sha=$SHA&event=push&branch=$BASE&per_page=50" \
         | jq -r --arg wf "$WF" "$FILTER | \"\(.id)\t\(.name)\""
     }
-    RUNS=""
+    # list first, then check the deadline, as build-id does: timeoutSeconds 0 is "look once, don't wait"
+    RUNS="$(list_runs 2>/dev/null || true)"
     while [ -z "$RUNS" ] && [ "$(date +%s)" -lt "$DEADLINE" ]; do
-      RUNS="$(list_runs 2>/dev/null || true)"; [ -n "$RUNS" ] || sleep 20
+      sleep 20; RUNS="$(list_runs 2>/dev/null || true)"
     done
     [ -n "$RUNS" ] || { echo "UNVERIFIED: no push run${WF:+ of '$WF'} observed for $SHA within ${TIMEOUT}s"; exit 10; }
     # Without a named workflow, sibling runs can register a little later — collect them once more.

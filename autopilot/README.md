@@ -124,6 +124,7 @@ PLUGIN="$(claude plugin root autopilot)"     # e.g. ~/.claude/plugins/.../autopi
 "$PLUGIN/lib/autopilot-config.sh" detect      # print an autodetected draft
 "$PLUGIN/lib/autopilot-config.sh" backlog     # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 "$PLUGIN/lib/autopilot-config.sh" validate     # check the written config
+"$PLUGIN/lib/autopilot-config.sh" timeout      # .deploy.verify.timeoutSeconds in seconds, checked (600 if unset)
 "$PLUGIN/lib/autopilot-config.sh" get '.git.baseBranch'
 ```
 
@@ -184,7 +185,7 @@ merge still pending. A ticket shared by several PRs moves only once all of them 
 | script | used by | what it saves |
 |---|---|---|
 | `lib/typecheck.sh` | every `<typecheck>` gate in `/autodev` + `/autoship` | runs `.commands.typecheck` at most once per working tree (cache keyed by tree hash under the per-worktree git dir), so re-asserting the gate after a no-op rebase/push is free. A config that is missing or isn't one JSON object fails it with rc 2 — `autopilot-config.sh get` refuses it rather than read every key as its default |
-| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `build-id` also counts a later commit that contains the merge and doesn't revert it (`git merge-base --is-ancestor`, after a fetch of the base branch when git doesn't know the commit — a builder that deploys every push may build the PR merged right after); `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown / 2 usage or config error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of ASCII digits or is over 86400 (a day), too) |
+| `lib/verify-deploy.sh <merge-sha>` | `/autoship` Step 5.1 | one background call per `.deploy.verify.mode`; `build-id` also counts a later commit that contains the merge and doesn't revert it (`git merge-base --is-ancestor`, after a fetch of the base branch when git doesn't know the commit — a builder that deploys every push may build the PR merged right after); `github-run` filters to `.deploy.verify.workflow` (else every push run for the SHA must go green). Exit 0 verified / 1 broken / 10 unverified / 12 commit unknown / 2 usage or config error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of seconds from 0 to 86400 (a day), too — `autopilot-config.sh timeout` checks it, the check `validate` runs as well, so a config that validates isn't refused after the merge). `timeoutSeconds` 0 looks once in either mode and doesn't wait |
 
 `autopilot-config.sh`, `typecheck.sh` and `verify-deploy.sh` all take `AUTOPILOT_REPO=<dir>` to act
 on another checkout than the cwd — how `/autoship` handles a PR in a sibling repo without `cd`.
@@ -193,11 +194,11 @@ Before changing `/autoship`'s merge steps (stack order, Steps 0.5, 4, 4.1), run 
 PR stack against a local bare repo and a `gh` stub, and exits 1 if a PR got closed, calls ran out of order or a branch was deleted under an open PR.
 Before changing `autopilot-config.sh` or `typecheck.sh`, run `autopilot/test/config.sh` — under `/bin/bash` too on a Mac (3.2,
 the bash a stock Mac runs them with): in throwaway repos and offline (`gh`, `curl`, `npx` stubbed), it checks `load`'s exit
-codes, `get`, `validate`, `AUTOPILOT_REPO`, the typecheck cache and `detect`'s backlog probe (a `curl` answering from canned
+codes, `get`, `validate` (with its `timeoutSeconds` check) and `timeout`, `AUTOPILOT_REPO`, the typecheck cache and `detect`'s backlog probe (a `curl` answering from canned
 files: where the MCP server comes from, `${BACKLOG_*}`, the token, up / refused / down / unusable), and exits 1 if any of them broke.
 Before changing `verify-deploy.sh`, run `autopilot/test/verify-deploy.sh` the same way: with `curl`, `gh` and `sleep` stubbed
 it runs every mode against a throwaway clone — the merge, a later commit that contains it (fetched too), a revert, the
-deadline, an unknown commit, deploy runs green or failed, usage errors — and checks each exit code.
+deadline, `timeoutSeconds` 0, an unknown commit, deploy runs green or failed, usage errors — and checks each exit code.
 
 Long waits (CI watch, merge queue, deploy verify) are run with `run_in_background` — the Bash tool caps
 foreground calls at 10 minutes. `/autodev`'s local reviewers and QA run as **parallel report-only
