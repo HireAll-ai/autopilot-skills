@@ -128,8 +128,11 @@ asking.
 ### Mechanics that matter
 
 **3 + 4 run as parallel, report-only subagents.** Start `<dev>` in the background first so QA gets a
-warm URL. Then one `Agent` per pass, **all in one message**; each prompt: *"In `<repo path>`, invoke
-`<skill>` on `git diff <base>...HEAD` (QA: against `<url>`, the flows this diff touches). REPORT ONLY —
+warm URL — in a process group of its own, and note the PID it prints (the group's id, for the stop
+under Preview link): `bash -c 'set -m; <dev> > <log> 2>&1 & echo $!'`; the URL lands in `<log>`. It
+goes through `bash` because a non-interactive zsh (the Mac's Bash tool) refuses `set -m`. Then one
+`Agent` per pass, **all in one message**; each prompt: *"In `<repo path>`, invoke `<skill>` on
+`git diff <base>...HEAD` (QA: against `<url>`, the flows this diff touches). REPORT ONLY —
 don't edit, commit or push. Return severity, confidence, file:line, problem, suggested fix (QA: + repro
 steps, screenshots). If the skill doesn't resolve, say so and stop."* Concurrent writers clobber one
 tree, so **you** own every fix; afterwards re-verify only the fixed UI bugs with `.qa.browseSkill`.
@@ -145,6 +148,11 @@ tree, so **you** own every fix; afterwards re-verify only the fixed UI bugs with
   add a **fast-path link**: an existing deep link, else a scratch seed script under `.context/` that
   creates the fixture and prints its URL (hand over the link + the re-seed command).
 - Leave the server running and include the restart command. *(From `/autopilot`: don't hold it open.)*
+- **Stop** it (a restart too) by its group, `kill -- -<pid>`, or by its own port,
+  `kill $(lsof -t -iTCP:<port> -sTCP:LISTEN)`: a plain `kill <pid>` of pnpm's PID leaves its children
+  serving. **Never** by a name or pattern — `pkill` / `killall` / `kill $(pgrep …)`: on a machine where
+  several agents run as one user (a worktree runner, a Mac with several Claude sessions) that stops
+  their servers too.
 
 **Test plan** `.context/testplan-<KEY>.md` — 5–10 `do X → expect Y` checks for what this change
 claims (happy path → the branches it introduces → neighbours it could regress), plus **Not verified
@@ -177,7 +185,7 @@ a status change; the tracker follows the workspace's status from Constructor on 
   TEST IT
     Preview:    <url — signed in, on the feature | command/curl for non-UI work>
     Fast path:  <url + re-seed cmd | n/a>
-    Server:     <running here — keep this session open> | restart: <dev> → <url>
+    Server:     <running here, group <pid> — stop: kill -- -<pid>> | restart: <dev> → <url>
     Test plan:  .context/testplan-<KEY>.md — first checks:
                   1. <do X → expect Y>   2. <…>   3. <…>
     Not verified locally: <bullets | none>

@@ -257,7 +257,9 @@ paragraph: a **live preview link** to the running dev server (URL read from the 
 output, `curl`-checked before it's printed, the server left up), routed through
 `qa.preview.authPath` (e.g. `/dev-login`) so the link lands past the login wall and on the changed
 surface — plus a **test plan** at `.context/testplan-<KEY>.md`: 5–10 `do X → expect Y` checks, what
-could **not** be verified locally, and where to look when it's wrong.
+could **not** be verified locally, and where to look when it's wrong. The server runs in a process
+group of its own and is stopped by that group (`kill -- -<pid>`), never by `pkill` / `killall` on a
+name: on a machine where several agents run as one user, that stops their servers too.
 
 When reaching the state under test takes more than ~3 manual steps, it also hands over a
 **fast-path link** that lands directly in that state — an existing deep link, or a scratch seed
