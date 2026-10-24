@@ -13,14 +13,14 @@
 #   autopilot-config.sh detect               # print an autodetected DRAFT config to stdout
 #   autopilot-config.sh backlog              # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 #   autopilot-config.sh validate [file]      # validate a config against the schema
-#   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure, broken or not) → detect + exit 3
+#   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure, broken or not, if readable) → detect + exit 3
 #   autopilot-config.sh load [--reconfigure]    # init marker check (exit 4 if missing), then ensure
 #
 # `load` is the Step-0 entry point of /autodev, /autoship, /autopilot: one call, everything on stdout
 # so the agent reads the config ONCE into context. exit 0 = loaded (config on stdout); exit 3 = no
 # config (or --reconfigure) — a detected draft is on stdout, run the interview and write it;
 # exit 4 = repo not initialized (run /autopilot:init); exit 2 = hard error (stderr), a config that
-# can't be read or isn't one JSON object (merge-conflict markers) among them.
+# can't be read (--reconfigure too) or isn't one JSON object (merge-conflict markers) among them.
 # `ensure` is the same minus the marker check (used by /autopilot:init itself).
 #
 # AUTOPILOT_REPO=<dir> runs any subcommand against the checkout at <dir> instead of the cwd — how
@@ -55,7 +55,7 @@ _cmd_dump() {
 _check_config() {
   local f="${1:-$CONFIG_PATH}"
   [ -f "$f" ] || _die "no config at $f"
-  [ -r "$f" ] || _die "cannot read config at $f"
+  [ -r "$f" ] || _die "cannot read config at $f: fix its permissions"
   jq -es 'map(type) == ["object"]' "$f" >/dev/null 2>&1 && return 0
   jq empty "$f" >/dev/null 2>&1 || _die "invalid JSON at $f"
   _die "config at $f is not one JSON object"
@@ -364,11 +364,13 @@ _cmd_validate() {
   echo "ok (structural): $file — install 'ajv-cli' for full schema validation"
 }
 
-# --reconfigure works on a broken config too: the interview rewrites it, starting from the draft
+# --reconfigure works on a broken config too: the interview rewrites it, starting from the draft. One
+# it can't read stays rc 2, as without --reconfigure: the interview couldn't rewrite it either.
 _cmd_ensure() {
   local err
   if [ "${1-}" = "--reconfigure" ]; then
     if _cmd_exists; then
+      [ -r "$CONFIG_PATH" ] || _check_config
       if err="$(_check_config 2>&1)"; then
         echo "autopilot-config: --reconfigure — current config kept at $CONFIG_PATH (start the interview from its values); detected draft follows on stdout" >&2
       else

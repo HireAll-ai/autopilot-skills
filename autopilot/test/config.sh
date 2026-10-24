@@ -9,7 +9,9 @@
 # Usage: autopilot/test/config.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
 #   load            valid config + init marker → rc 0 and the config / a config that isn't JSON or is []:
 #                   load, ensure, dump → rc 2, the cause named, nothing on stdout; --reconfigure → rc 3
-#                   and a draft, broken or not / no config → rc 3 and a detected draft / no init marker → rc 4
+#                   and a draft, broken or not / one it can't read (skipped as root): load and ensure
+#                   --reconfigure → rc 2, fix its permissions / no config → rc 3 and a detected draft /
+#                   no init marker → rc 4
 #   get             get <filter> [default], path, exists, dump; get on a config that isn't JSON, is
 #                   empty or [] or can't be read (skipped as root) → rc 2, the cause named
 #   validate        a valid config, then broken ones: not JSON, empty, [], keys missing, another version
@@ -130,6 +132,21 @@ scenario_load() {
   check "a config that is [] → rc 2, not one JSON object" fails_with 2 "config at $C is not one JSON object"
   check "… nothing on stdout" bash -c "[ ! -s '$T/out' ]"
   cp "$T/load-good.json" "$C"
+  if [ "$(id -u)" = 0 ]; then
+    skip "a config it can't read, --reconfigure (root reads any file)"
+  else
+    chmod 000 "$C"
+    run in_dir "$R" "$CONFIG" load --reconfigure
+    check "a config it can't read: load --reconfigure → rc 2, fix its permissions (the interview couldn't rewrite it)" \
+      fails_with 2 "cannot read config at $C: fix its permissions"
+    check "… no draft on stdout, the config not called broken" bash -c "[ ! -s '$T/out' ] && ! grep -qF 'is broken' '$T/err'"
+    run in_dir "$R" "$CONFIG" ensure --reconfigure
+    check "… ensure --reconfigure (/autopilot:init --force) → rc 2 too, nothing on stdout" \
+      bash -c "[ $RC = 2 ] && [ ! -s '$T/out' ] && grep -qF 'cannot read config at $C: fix its permissions' '$T/err'"
+    run in_dir "$R" "$CONFIG" load
+    check "… load without --reconfigure → rc 2, the same hint" fails_with 2 "cannot read config at $C: fix its permissions"
+    chmod 644 "$C"
+  fi
 
   git init -q -b main "$N"; mkdir "$N/.claude"; cp "$R/.claude/autopilot.init.json" "$N/.claude/"
   git -C "$N" add -A; git -C "$N" commit -q -m "chore: init"

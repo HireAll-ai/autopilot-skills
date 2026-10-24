@@ -27,7 +27,8 @@ Every repo must be initialized once before the other commands run (they check th
 5. bootstraps **baseline documentation** — gstack `/document-generate` (Diataxis baseline);
 6. writes the `.claude/autopilot.init.json` marker and commits.
 
-Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs`.
+Idempotent; flags: `--force`, `--skip-backlog`, `--skip-design`, `--skip-docs` (steps 3, 4, 5 —
+`--force` with all three redoes only the config, e.g. one left with merge-conflict markers).
 
 ## Backlog tracker + follow-ups
 
@@ -111,8 +112,9 @@ The commands load it with **one** call at Step 0.0 — `autopilot-config.sh load
 (exit 4 if missing) and prints the config (exit 0) or an autodetected draft (exit 3) to stdout, so the
 agent reads the config once into context instead of re-querying it per value. A config it can't read
 or that isn't one JSON object (merge-conflict markers) stops it with exit 2 and the cause on stderr —
-the broken text never reaches the agent; `--reconfigure` still works on one, starting the interview
-from the draft. The interview itself
+the broken text never reaches the agent; `--reconfigure` still works on one that isn't JSON, starting
+the interview from the draft. One it can't read stays exit 2 with `--reconfigure` too, and stderr says
+to fix its permissions: the interview couldn't rewrite it either. The interview itself
 lives in [`lib/config-interview.md`](lib/config-interview.md) and is only read when needed.
 
 Preview / inspect via the loader (resolve the plugin dir with `claude plugin root autopilot`):
