@@ -7,7 +7,9 @@
 #   gh     `repo view` → acme/app (no-repo → fails); `api …/actions/runs…` → runs.json (absent: no
 #          runs); `run watch <id>` → the exit code in run.<id> (absent: 1)
 #   sleep  the poll waits (15 s build-id, 20 s github-run) take 0.1 s; any other sleep is real
-# A scenario that waits out the deadline sets .deploy.verify.timeoutSeconds to 1, the others to 30.
+# A scenario that waits out the deadline sets .deploy.verify.timeoutSeconds to 1, or 2–3 when it needs
+# 2–3 polls or more (the deadline counts whole seconds of `date +%s`, so a 1 s window can end at once);
+# the others to 30.
 #
 # Usage: autopilot/test/verify-deploy.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
 #   usage           no <merge-sha>, no config, a config that isn't JSON, is empty or [] or can't be read
@@ -20,7 +22,9 @@
 #   build-id        the merge (full or short sha) → rc 0; the build flips on the 2nd poll → rc 0; a later
 #                   commit that contains it → rc 0, one only origin has after a fetch too; a revert of
 #                   it → rc 10; an older or unknown commit until the deadline → rc 10; unknown, empty
-#                   or not JSON → rc 12 with restartedAt; unreachable → rc 1; timeoutSeconds 0 → one poll
+#                   or not JSON → rc 12 with restartedAt, kept when a later poll fails; unreachable on every
+#                   poll, 3 or more → rc 1; one failed poll, then the merge → rc 0; timeoutSeconds 0 → one
+#                   poll, unreachable on it → rc 10
 #   github-run      the deploy run green → rc 0, failed → rc 1; only the named workflow counts, by
 #                   name or file; none named → every push run, listed twice; no run in time → rc 10;
 #                   timeoutSeconds 0 → listed once, then rc 0 on a finished run, rc 10 on none
@@ -292,9 +296,20 @@ scenario_build-id() {
   check "a body that isn't JSON → rc 12, the commit reads empty" \
     says 12 "COMMIT_UNKNOWN: $URL answers but the commit reads '<empty>'; restartedAt=<n/a>"
 
-  build_id "$W" 1; canned
+  build_id "$W" 2 '{ "restartedAtJq": ".restartedAt" }'; canned body.1 '{"commit":"unknown","restartedAt":"2026-10-21T02:00:00Z"}'
   run in_dir "$W" "$VERIFY" "$MERGE"
-  check "unreachable the whole window → rc 1, BROKEN" says 1 "BROKEN: $URL unreachable for the whole 1s window"
+  check "commit unknown, then unreachable until the deadline → rc 12, the answer's restartedAt kept" \
+    says 12 "COMMIT_UNKNOWN: $URL answers but the commit reads 'unknown'; restartedAt=2026-10-21T02:00:00Z"
+  check "… polled again after it" bash -c "[ \"\$(cat '$CANNED/curl.n')\" -ge 2 ]"
+
+  build_id "$W" 3; canned
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "unreachable on every poll of a 3 s window → rc 1, BROKEN" says 1 "BROKEN: $URL unreachable for the whole 3s window"
+  check "… 3 polls or more" bash -c "[ \"\$(cat '$CANNED/curl.n')\" -ge 3 ]"
+  build_id "$W"; canned body.2 "{\"commit\":\"$MERGE\"}"
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "unreachable on the 1st poll, the merge on the 2nd → rc 0, VERIFIED" says 0 "VERIFIED: $URL reports $MERGE"
+  check "… 2 polls, one 15 s wait between them" bash -c "[ \"\$(cat '$CANNED/curl.n')\" = 2 ] && [ \"\$(grep -cx 'sleep 15' '$CANNED/calls.log')\" = 1 ]"
 
   build_id "$W" 0; canned body "{\"commit\":\"$MERGE\"}"
   run in_dir "$W" "$VERIFY" "$MERGE"
@@ -304,6 +319,11 @@ scenario_build-id() {
   run in_dir "$W" "$VERIFY" "$MERGE"
   check "timeoutSeconds 0, the old build → rc 10, UNVERIFIED" \
     says 10 "UNVERIFIED: $URL still reports $OLD (not $MERGE or a commit that contains it) after 0s"
+  check "… one poll, no wait" bash -c "[ \"\$(cat '$CANNED/curl.n')\" = 1 ] && ! grep -q '^sleep' '$CANNED/calls.log'"
+  canned
+  run in_dir "$W" "$VERIFY" "$MERGE"
+  check "timeoutSeconds 0, unreachable on its one poll → rc 10, UNVERIFIED, not BROKEN" \
+    says 10 "UNVERIFIED: $URL unreachable on the only poll(s) in a 0s window"
   check "… one poll, no wait" bash -c "[ \"\$(cat '$CANNED/curl.n')\" = 1 ] && ! grep -q '^sleep' '$CANNED/calls.log'"
 }
 

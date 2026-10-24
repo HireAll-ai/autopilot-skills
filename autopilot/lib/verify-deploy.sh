@@ -9,10 +9,11 @@
 #                                                             # when it isn't the cwd's repo
 # Exit:  0  verified — the running build is <merge-sha> or a later commit that contains it and
 #                      doesn't revert it (build-id) / the deploy run(s) went green (github-run)
-#        1  broken   — deploy run failed, or the build-id endpoint was unreachable the whole window
-#                      → hard STOP + revert recipe
+#        1  broken   — deploy run failed, or the build-id endpoint was unreachable on every poll of
+#                      the window, 3 or more → hard STOP + revert recipe
 #        10 unverified — nothing confirmed it in time (old build still answering, no run observed,
-#                      mode none), or the live build reverts it. NOT a failure: the ship landed,
+#                      mode none, the build-id endpoint unreachable on the only poll or two a short
+#                      window allowed), or the live build reverts it. NOT a failure: the ship landed,
 #                      report it as UNVERIFIED.
 #        12 build-id endpoint answers but the commit reads unknown/empty; the last response's
 #                      restartedAt value (if .deploy.verify.restartedAtJq is set) is printed so the
@@ -90,9 +91,14 @@ case "$MODE" in
       GIT_NO_LAZY_FETCH=1 git log --format=%B "$SHA..$LIVE" 2>/dev/null \
         | grep -iF "This reverts commit $SHA" >/dev/null
     }
+    # A failed poll (a 503 during the swap, a DNS blip, the 10 s cap) keeps what the last answer said;
+    # down on every poll is BROKEN only once there were 3 of them — a window too short for that is
+    # unverified, not a reason to revert.
+    POLLS=0
     while :; do
-      if BODY="$(curl -fsS --max-time 10 "$URL" 2>/dev/null)"; then
-        REACHED=1
+      POLLS=$((POLLS + 1))
+      if OUT="$(curl -fsS --max-time 10 "$URL" 2>/dev/null)"; then
+        REACHED=1; BODY="$OUT"
         LIVE="$(printf '%s' "$BODY" | jq -r "($JQ) // empty" 2>/dev/null || true)"
         if [ "$LIVE" = "$SHA" ] || { [ ${#LIVE} -ge 7 ] && [ "${SHA#"$LIVE"}" != "$SHA" ]; }; then
           echo "VERIFIED: $URL reports $LIVE"; exit 0
@@ -107,7 +113,10 @@ case "$MODE" in
       [ "$(date +%s)" -lt "$DEADLINE" ] || break
       sleep 15
     done
-    [ -n "$REACHED" ] || { echo "BROKEN: $URL unreachable for the whole ${TIMEOUT}s window"; exit 1; }
+    if [ -z "$REACHED" ]; then
+      [ "$POLLS" -ge 3 ] || { echo "UNVERIFIED: $URL unreachable on the only poll(s) in a ${TIMEOUT}s window"; exit 10; }
+      echo "BROKEN: $URL unreachable for the whole ${TIMEOUT}s window"; exit 1
+    fi
     case "$LIVE" in
       ""|unknown|null)
         R=""; [ -n "$RJQ" ] && R="$(printf '%s' "$BODY" | jq -r "($RJQ) // empty" 2>/dev/null || true)"
