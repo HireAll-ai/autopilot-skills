@@ -13,6 +13,7 @@
 #   autopilot-config.sh detect               # print an autodetected DRAFT config to stdout
 #   autopilot-config.sh backlog              # probe the backlog tracker: up <keys> | refused <url> <code> | down <url> <code> | unusable
 #   autopilot-config.sh validate [file]      # validate a config against the schema
+#   autopilot-config.sh timeout [file]       # .deploy.verify.timeoutSeconds, checked: its seconds, 600 if unset; rc 2 if out of range
 #   autopilot-config.sh ensure [--reconfigure]  # exists → dump; missing (or --reconfigure, broken or not, if readable) → detect + exit 3
 #   autopilot-config.sh load [--reconfigure]    # init marker check (exit 4 if missing), then ensure
 #
@@ -345,8 +346,28 @@ _cmd_detect() {
     }'
 }
 
+# timeout [file] — .deploy.verify.timeoutSeconds of the config (or <file>), in seconds: 600 when absent
+# or null, else a whole number from 0 to 86400 (a day), as a JSON number or a string of ASCII digits
+# ("030" is 30, not octal); anything else → rc 2 naming the key, the value and the range.
+# verify-deploy.sh polls that long and `validate` runs this too, so a value it would refuse after the
+# merge fails validation first. Checked by type in jq, never as text: jq 1.6 prints a big number as
+# 1e+20 and jq 1.7 prints 30.0 as written, and under a UTF-8 locale bash's [0-9] matches ٣ or ０.
+_cmd_timeout() {
+  local f="${1:-$CONFIG_PATH}" out
+  _check_config "$f"
+  out="$(jq -r '(try .deploy.verify.timeoutSeconds catch null) as $t
+    | if $t == null then 600
+      elif ($t | type) == "number" and $t == ($t | floor) and $t >= 0 and $t <= 86400 then $t | floor
+      elif ($t | type) == "string" and ($t | test("\\A[0-9]+\\z")) and ($t | tonumber) <= 86400 then $t | tonumber
+      else "bad \(if ($t | type) == "string" then $t else $t | tojson end)" end' "$f")"
+  case "$out" in
+    "bad "*) _die ".deploy.verify.timeoutSeconds must be a whole number of seconds from 0 to 86400, got '${out#bad }'" ;;
+  esac
+  printf '%s\n' "$out"
+}
+
 # validate a config file against the schema. Prefers ajv (node) if resolvable; else does
-# a jq-based structural check of the required top-level keys + version.
+# a jq-based structural check of the required top-level keys + version, and checks timeoutSeconds.
 _cmd_validate() {
   local file="${1:-$CONFIG_PATH}"
   _check_config "$file"   # names the cause first: an empty file isn't "version must be 1"
@@ -361,6 +382,7 @@ _cmd_validate() {
     - (keys) | join(", ")' "$file")"
   [ -z "$missing" ] || _die "missing required top-level keys: $missing"
   [ "$(jq -r '.version' "$file")" = "1" ] || _die "version must be 1"
+  _cmd_timeout "$file" >/dev/null
   echo "ok (structural): $file — install 'ajv-cli' for full schema validation"
 }
 
@@ -403,7 +425,8 @@ case "$cmd" in
   detect)   _cmd_detect ;;
   backlog)  _detect_backlog; echo ;;
   validate) _cmd_validate "$@" ;;
+  timeout)  _cmd_timeout "$@" ;;
   ensure)   _cmd_ensure "$@" ;;
   load)     _cmd_load "$@" ;;
-  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|backlog|validate [file]|ensure [--reconfigure]|load [--reconfigure]}" >&2; exit 2 ;;
+  *) echo "usage: autopilot-config.sh {path|exists|dump|get <jqfilter> [def]|detect|backlog|validate [file]|timeout [file]|ensure [--reconfigure]|load [--reconfigure]}" >&2; exit 2 ;;
 esac

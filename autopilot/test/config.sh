@@ -14,7 +14,10 @@
 #                   no init marker → rc 4
 #   get             get <filter> [default], path, exists, dump; get on a config that isn't JSON, is
 #                   empty or [] or can't be read (skipped as root) → rc 2, the cause named
-#   validate        a valid config, then broken ones: not JSON, empty, [], keys missing, another version
+#   validate        a valid config, then broken ones: not JSON, empty, [], keys missing, another version;
+#                   a timeoutSeconds past a day, not digits, negative, in Arabic-Indic digits under a UTF-8
+#                   locale (skipped without one) → rc 2, the range named; absent, null, 0, 86400, "30" → rc 0;
+#                   timeout prints its seconds: 600 by default, "030" → 30, 30.0 → 30
 #   autopilot-repo  AUTOPILOT_REPO=<dir> from another cwd: outside any repo, inside another repo
 #   typecheck       empty command → skipped; pass → cached pass; a changed tree or --force → re-run;
 #                   a failing command → its exit code; a config that isn't JSON → rc 2, not skipped
@@ -242,6 +245,39 @@ scenario_validate() {
   check "version 2 → rc 2, version must be 1" fails_with 2 "version must be 1"
   run in_dir "$R" "$CONFIG" validate "$T/absent.json"
   check "a file that isn't there → rc 2, no config at <file>" fails_with 2 "no config at $T/absent.json"
+
+  # .deploy.verify.timeoutSeconds: refused here, before the merge, as verify-deploy.sh would refuse it after
+  local t range="autopilot-config: .deploy.verify.timeoutSeconds must be a whole number of seconds from 0 to 86400, got"
+  for t in 86401 '"abc"' -5; do
+    jq --argjson t "$t" '.deploy.verify.timeoutSeconds = $t' "$C" > "$T/timeout.json"
+    run in_dir "$R" "$CONFIG" validate "$T/timeout.json"
+    check "timeoutSeconds $t → rc 2, the key, the value and the range" fails_with 2 "$range '$(jq -r . <<<"$t")'"
+  done
+  # glibc's en_US.UTF-8 has bash's [0-9] match Arabic-Indic digits; C.UTF-8 doesn't, so it comes second
+  local locales loc; locales=$(locale -a 2>/dev/null || true)
+  loc=$(grep -m 1 -ixE 'en_US\.utf-?8' <<<"$locales" || grep -m 1 -ixE 'C\.utf-?8' <<<"$locales" || true)
+  if [ -z "$loc" ]; then
+    skip "timeoutSeconds in Arabic-Indic digits under a UTF-8 locale (neither en_US.UTF-8 nor C.UTF-8 here)"
+  else
+    jq '.deploy.verify.timeoutSeconds = "٣٠"' "$C" > "$T/timeout.json"
+    run in_dir "$R" env LC_ALL="$loc" "$CONFIG" validate "$T/timeout.json"
+    check "timeoutSeconds \"٣٠\" under LC_ALL=$loc → rc 2, the range named" fails_with 2 "$range '٣٠'"
+  fi
+  for t in absent null 0 86400 '"30"'; do
+    if [ "$t" = absent ]; then cp "$C" "$T/timeout.json"
+    else jq --argjson t "$t" '.deploy.verify.timeoutSeconds = $t' "$C" > "$T/timeout.json"; fi
+    run in_dir "$R" "$CONFIG" validate "$T/timeout.json"
+    check "timeoutSeconds $t → rc 0, ok (structural)" bash -c "[ $RC = 0 ] && grep -q '^ok (structural): $T/timeout.json' '$T/out'"
+  done
+  run in_dir "$R" "$CONFIG" timeout
+  check "timeout, none set → 600" got 600
+  jq '.deploy.verify.timeoutSeconds = "030"' "$C" > "$T/timeout.json"
+  run in_dir "$R" "$CONFIG" timeout "$T/timeout.json"
+  check "timeout \"030\" → 30, not octal" got 30
+  # written as is: jq 1.7 prints 30.0 as written, which verify-deploy.sh's arithmetic would refuse
+  jq '.deploy.verify.timeoutSeconds = "__T__"' "$C" | sed 's/"__T__"/30.0/' > "$T/timeout.json"
+  run in_dir "$R" "$CONFIG" timeout "$T/timeout.json"
+  check "timeout 30.0 → 30" got 30
 }
 
 scenario_autopilot-repo() {

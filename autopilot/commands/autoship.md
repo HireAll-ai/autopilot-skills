@@ -348,8 +348,8 @@ the mode from `.deploy.verify.mode`; when absent, infer `github-run` if `.deploy
 
 ### 5.1 — Confirm the merge is live
 
-One script covers every mode. It polls for up to `.deploy.verify.timeoutSeconds` (default 600) and
-may then watch runs — **run it in the background** (`run_in_background: true`); you're re-invoked
+One script covers every mode. It polls for up to `.deploy.verify.timeoutSeconds` (default 600; 0 looks
+once and doesn't wait) and may then watch runs — **run it in the background** (`run_in_background: true`); you're re-invoked
 when it exits:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/lib/verify-deploy.sh" <merge-sha>
@@ -362,7 +362,7 @@ when it exits:
 | **1** | `BROKEN` — a deploy run failed, or the build-id endpoint was unreachable the whole window | **hard STOP**: skip 5.5 / 5.6 / 6, surface it, offer the **revert recipe** |
 | **10** | `UNVERIFIED` — old build still answering at the deadline, no push run observed, mode `none`, or the live build contains `<merge-sha>` but also reverts it | **unverified** (below) |
 | **12** | `COMMIT_UNKNOWN` — the endpoint answers but its commit reads `unknown`/empty (the build arg never arrived — **not** a failed deploy) | if it printed a `restartedAt` **after** the merge time, count it as deployed and say the evidence was the restart, not the commit; else **unverified** |
-| **2** | config/usage error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of ASCII digits or is over 86400 (a day), `build-id` without `buildIdUrl`) | fix the config, re-run |
+| **2** | config/usage error, named on stderr (no config, one it can't read or that isn't one JSON object, a `timeoutSeconds` that isn't a whole number of seconds from 0 to 86400 (a day), `build-id` without `buildIdUrl`) | fix the config, re-run |
 
 `github-run` only counts runs triggered by the **push** of `<merge-sha>` to `<base>` (never "the
 latest run" or a same-SHA manual run), filtered to `.deploy.verify.workflow` when set. Without it,
