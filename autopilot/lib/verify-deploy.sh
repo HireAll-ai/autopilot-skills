@@ -42,10 +42,14 @@ if [ -z "$MODE" ]; then [ "$TRIGGER" = "github-action" ] && MODE="github-run" ||
 # `autopilot-config.sh timeout` checks it — the same check `validate` runs, so a config that passed
 # validation isn't refused here after the merge — and prints only whole seconds from 0 to 86400: bash
 # arithmetic never sees "abc" (read as a variable, its $(…) run in a subscript like "PATH[$(cmd)]"),
-# nor a number past a day that 64-bit arithmetic would wrap into a deadline in the past
-if ! TIMEOUT="$("$SCRIPT_DIR/autopilot-config.sh" timeout 2>&1)"; then
-  echo "verify-deploy: ${TIMEOUT#autopilot-config: }" >&2; exit 2
+# nor a number past a day that 64-bit arithmetic would wrap into a deadline in the past. Its stdout
+# only: a child bash can write to stderr when it succeeds (a setlocale warning when LC_ALL names a
+# locale the system lacks, common in containers), and that text mustn't reach $(( )) either
+if ! TIMEOUT="$("$SCRIPT_DIR/autopilot-config.sh" timeout 2>/dev/null)"; then
+  ERR="$("$SCRIPT_DIR/autopilot-config.sh" timeout 2>&1 >/dev/null)"
+  echo "verify-deploy: ${ERR#autopilot-config: }" >&2; exit 2
 fi
+case "$TIMEOUT" in ''|*[!0123456789]*) echo "verify-deploy: autopilot-config.sh timeout printed '$TIMEOUT', not whole seconds" >&2; exit 2;; esac
 DEADLINE=$(( $(date +%s) + $TIMEOUT ))
 echo "verify-deploy: mode=$MODE sha=$SHA timeout=${TIMEOUT}s"
 

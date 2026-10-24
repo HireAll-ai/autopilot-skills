@@ -15,7 +15,8 @@
 #                   (negative, past a day as a JSON number or a string, Arabic-Indic or fullwidth digits under
 #                   a UTF-8 locale, skipped without one) → one message naming the range, build-id without
 #                   buildIdUrl, an unknown mode, a missing AUTOPILOT_REPO, `gh repo view` failing → rc 2
-#   none            mode none, set or by default → rc 10, UNVERIFIED, nothing polled
+#   none            mode none, set or by default → rc 10, UNVERIFIED, nothing polled; the same with LC_ALL naming
+#                   a locale the system lacks (bash warns on stderr in every child), not rc 1
 #   build-id        the merge (full or short sha) → rc 0; the build flips on the 2nd poll → rc 0; a later
 #                   commit that contains it → rc 0, one only origin has after a fetch too; a revert of
 #                   it → rc 10; an older or unknown commit until the deadline → rc 10; unknown, empty
@@ -226,6 +227,11 @@ scenario_none() {
     check "deploy $block → rc 10, UNVERIFIED" says 10 "UNVERIFIED: deploy.verify.mode is none — nothing can confirm the build"
     check "… mode=none, nothing polled" bash -c "grep -qx 'verify-deploy: mode=none sha=$MERGE timeout=600s' '$T/out' && [ ! -s '$CANNED/calls.log' ]"
   done
+  # glibc's bash warns `setlocale: LC_ALL: cannot change locale` on stderr at every start: the timeout
+  # verify-deploy reads from a child must come from its stdout only
+  run in_dir "$W" env LC_ALL=xx_XX.UTF-8 "$VERIFY" "$MERGE"
+  check "LC_ALL=xx_XX.UTF-8, a locale the system lacks → rc 10, UNVERIFIED, timeout=600s" \
+    bash -c "[ $RC = 10 ] && grep -qx 'verify-deploy: mode=none sha=$MERGE timeout=600s' '$T/out'"
 }
 
 scenario_build-id() {
