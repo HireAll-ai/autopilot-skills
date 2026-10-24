@@ -51,8 +51,9 @@ Skip when `$ARGUMENTS` has `--preloaded` (`/autopilot` already ran this; the con
   re-run this command. PRs this chat opened in other, initialized repos still ship (Step 0).
 - **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md` and
   run it. `/autoship` needs the tracker/review/deploy sections populated to run at all.
-- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing, or a config that can't be read
-  or isn't one JSON object — merge-conflict markers: fix it, or re-run with `--reconfigure`) → surface it, **STOP**.
+- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing; a config it can't read, with
+  `--reconfigure` too — fix its permissions; or one that isn't one JSON object — merge-conflict
+  markers: fix it, or re-run with `--reconfigure`) → surface it, **STOP**.
 
 **Shell state does not persist between Bash calls** — substitute config values literally into each
 command rather than relying on variables from an earlier call (`<merge-sha>` included: once captured

@@ -10,7 +10,9 @@ Run once per repository, **before** the first `/autodev`, `/autoship` or
 `/autopilot` run. Those commands check for the marker this
 command writes (`.claude/autopilot.init.json`) and stop if it is missing.
 Idempotent: re-running verifies each item and only fixes what is missing;
-`--force` redoes everything.
+`--force` redoes everything (gstack is still installed only when missing).
+`--skip-backlog`, `--skip-design` and `--skip-docs` leave out Steps 3, 4 and 5:
+`--force` with all three redoes only the config.
 
 ## Step 1 — gstack present?
 
@@ -48,8 +50,10 @@ Same loader as the other commands, minus the init-marker check (this command wri
 - **rc=0** → config present (stdout). Keep it in context for the steps below.
 - **rc=3** → stdout is an autodetected draft: Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md`
   and run that interview.
-- **rc=2 / other** → loader hard error on stderr (commonly: `jq` missing, or a config that can't be read
-  or isn't one JSON object — merge-conflict markers: fix it, or re-run with `--force`) → surface it, **STOP**.
+- **rc=2 / other** → loader hard error on stderr (commonly: `jq` missing; a config it can't read, with
+  `--force` too — fix its permissions; or one that isn't one JSON object — merge-conflict markers: fix
+  the file, or redo only the config with `--force --skip-backlog --skip-design --skip-docs`) → surface
+  it, **STOP**.
 
 ## Step 3 — backlog tracker (skip with `--skip-backlog`)
 
@@ -153,6 +157,10 @@ cat > .claude/autopilot.init.json <<EOF
 EOF
 git add .claude/autopilot.init.json
 ```
+
+A step left out with `--skip-design` / `--skip-docs` keeps the value an existing
+marker records (`skipped` only in a new one): a re-run that redoes the config
+doesn't erase what an earlier run did.
 
 Commit together with anything the steps produced (`DESIGN.md`, generated docs,
 config): `chore: autopilot init (gstack, design, docs)`.

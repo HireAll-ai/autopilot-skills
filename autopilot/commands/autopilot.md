@@ -34,8 +34,9 @@ Steps 0–6 (ready → review loop → checks → merge → canary → QA → ti
   config, DESIGN.md + docs bootstrap), then re-run this command.
 - **rc=3** → no config (or `--reconfigure`): Read `${CLAUDE_PLUGIN_ROOT}/lib/config-interview.md`,
   run it, then continue.
-- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing, or a config that can't be read
-  or isn't one JSON object — merge-conflict markers: fix it, or re-run with `--reconfigure`) → surface it, **STOP**.
+- **rc=2 / other** → hard loader error on stderr (commonly: `jq` missing; a config it can't read, with
+  `--reconfigure` too — fix its permissions; or one that isn't one JSON object — merge-conflict
+  markers: fix it, or re-run with `--reconfigure`) → surface it, **STOP**.
 
 ## Scope — any task
 
