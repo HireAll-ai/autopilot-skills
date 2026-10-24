@@ -7,9 +7,9 @@
 #   gh     `repo view` → acme/app (no-repo → fails); `api …/actions/runs…` → runs.json (absent: no
 #          runs); `run watch <id>` → the exit code in run.<id> (absent: 1)
 #   sleep  the poll waits (15 s build-id, 20 s github-run) take 0.1 s; any other sleep is real
-# A scenario that waits out the deadline sets .deploy.verify.timeoutSeconds to 1, or 2–3 when it needs
-# 2–3 polls or more (the deadline counts whole seconds of `date +%s`, so a 1 s window can end at once);
-# the others to 30.
+# A scenario that waits out the deadline sets .deploy.verify.timeoutSeconds to 1, or to 2 or 3 when it
+# needs that many polls (the deadline counts whole seconds of `date +%s`: a 1 s window can end after
+# one poll); the others to 30.
 #
 # Usage: autopilot/test/verify-deploy.sh [scenario …]   (default: all; KEEP=1 keeps the temp dir)
 #   usage           no <merge-sha>, no config, a config that isn't JSON, is empty or [] or can't be read
