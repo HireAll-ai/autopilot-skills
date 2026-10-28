@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Local check of how /autoship merges a PR stack (autoship.md Steps 0.5, 4 and 4.1), no GitHub needed.
+# Local check of how /autoship merges a PR stack (autoship.md Steps 0.5, 4 and 4.1), and of when Step 0.5
+# rebases a PR the base moved under, no GitHub needed.
 # A bare repo stands in for GitHub: its post-receive hook closes the open PRs based on a deleted
 # branch, as GitHub did to ai-backlog#310. test/bin/gh is a gh stub that keeps PRs in files and logs
 # every call. The step functions below are the command's steps with the placeholders filled in —
@@ -10,6 +11,10 @@
 #   stack              a two-PR stack plus someone else's PR on the bottom branch, shipped in turn
 #   rebased-base       the bottom PR was rebased after the second one branched
 #   edit-fails         a retarget fails → the branch must stay
+#   behind-mergeable   main moved under a PR, no conflict, base not strict → merged with no rebase or force-push
+#   behind-conflicting main moved under a PR and conflicts with it → rebased (conflict resolved), then merged
+#   behind-strict      main moved under a PR, no conflict, base strict → rebased, then merged
+#   behind-contract    main moved package.json under a PR, base not strict → rebased (a moved contract)
 # Exit 0 when every check passes, 1 otherwise. Needs git ≥ 2.28 and jq.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -108,6 +113,37 @@ step05_stacked() {
   g rebase -q --onto origin/main "$old" && g push -q --force-with-lease origin HEAD
 }
 
+# --- autoship Step 0.5 for PR $2 on branch $1 that isn't stacked (<base> = main, strict = $3)
+step05() {
+  local branch=$1 n=$2 strict=$3 behind state why=""
+  g checkout -q "$branch"; g fetch -q origin main
+  if g merge-base --is-ancestor origin/main HEAD; then
+    say "$branch: current — no rebase"; g push -q -u origin HEAD; return 0
+  fi
+  behind=$(g rev-list --count HEAD..origin/main)
+  state=$(gh pr view "$n" --json mergeable,mergeStateStatus --jq '"\(.mergeable) \(.mergeStateStatus)"')
+  if [ "$strict" = true ]; then why="strict base"
+  elif [ "${state%% *}" = CONFLICTING ] || [ "${state##* }" = DIRTY ]; then why="conflict ($state)"
+  # the semantic-overlap check: the agent reads the delta; here, the test's one contract file
+  elif g diff --name-only HEAD...origin/main | grep -x package.json >/dev/null; then why="moved contract (package.json)"
+  fi
+  if [ -z "$why" ]; then
+    say "$branch: behind main by $behind, $state — not rebased (base not strict)"
+    g push -q -u origin HEAD; return 0
+  fi
+  say "$branch: behind main by $behind — rebase: $why"
+  if ! g rebase -q origin/main >/dev/null 2>&1; then
+    resolve_conflict || { g rebase --abort; return 1; }
+  fi
+  g push -q --force-with-lease -u origin HEAD
+}
+# the agent's part of a conflicting rebase: README keeps main's line and adds the PR's
+resolve_conflict() {
+  [ "$(g diff --name-only --diff-filter=U)" = README ] || return 1
+  printf '%s\n' "app v2, four" > "$W/README"; g add README
+  GIT_EDITOR=true g rebase --continue >/dev/null
+}
+
 own_commits() { [ "$(g log --format=%s "origin/main..origin/$1" | tr '\n' ';')" = "$2" ]; }
 main_has() { [ "$(g show "origin/main:$1")" = "$2" ]; }
 
@@ -169,7 +205,62 @@ scenario_edit-fails() {
   invariants
 }
 
-ALL="old-delete-branch stack rebased-base edit-fails"
+# --- PR #4 feat/four → main (its own file + a README line), then main moves under it with commit $1 $2 $3
+setup_behind() {
+  setup
+  g checkout -q -b feat/four main; commit four.txt "four" "feat: add four"; commit README "app, four" "docs: four in the README"
+  g push -q -u origin feat/four; pr 4 main feat/four "feat: four"
+  g checkout -q main; commit "$1" "$2" "$3"; g push -q origin main
+  git --git-dir="$SIM/origin.git" rev-parse refs/heads/feat/four > "$SIM/head-before"
+  : > "$SIM/calls.log"
+}
+head_unchanged() { [ "$(git --git-dir="$SIM/origin.git" rev-parse refs/heads/feat/four)" = "$(cat "$SIM/head-before")" ]; }
+head_moved() { ! head_unchanged; }
+merge_state_is() { [ "$(gh pr view "$1" --json mergeable,mergeStateStatus --jq '"\(.mergeable) \(.mergeStateStatus)"')" = "$2" ]; }
+on_top_of_main() { git --git-dir="$SIM/origin.git" merge-base --is-ancestor refs/heads/main refs/heads/feat/four; }
+merged_with() { step4 4 && is_pr 4 MERGED main && g fetch -q origin && main_has four.txt four && main_has "$1" "$2"; }
+
+scenario_behind-mergeable() {
+  setup_behind hotfix.txt "h" "fix: hotfix"
+  step05 feat/four 4 false
+  check "Step 0.5 asked GitHub whether #4 conflicts" logged 'gh pr view 4 --json mergeable,mergeStateStatus'
+  check "gh reports #4 MERGEABLE BEHIND" merge_state_is 4 "MERGEABLE BEHIND"
+  check "feat/four not rebased, not force-pushed (remote head unchanged)" head_unchanged
+  check "#4 merged as it is; main has the hotfix and four.txt" merged_with hotfix.txt h
+  check "main: init, hotfix, #4" bash -c "[ \"\$(git -C '$W' log --format=%s origin/main | tr '\n' ';')\" = 'feat: four (#4);fix: hotfix;chore: init;' ]"
+  invariants
+}
+
+scenario_behind-conflicting() {
+  setup_behind README "app v2" "docs: v2 in the README"
+  check "gh reports #4 CONFLICTING DIRTY" merge_state_is 4 "CONFLICTING DIRTY"
+  step05 feat/four 4 false
+  check "feat/four rebased and force-pushed (remote head moved)" head_moved
+  check "feat/four on top of main" on_top_of_main
+  check "rebase kept #4's own two commits" own_commits feat/four "docs: four in the README;feat: add four;"
+  check "gh reports #4 MERGEABLE CLEAN after the rebase" merge_state_is 4 "MERGEABLE CLEAN"
+  check "#4 merged; main's README has both lines" merged_with README "app v2, four"
+  invariants
+}
+
+scenario_behind-strict() {
+  setup_behind hotfix.txt "h" "fix: hotfix"
+  step05 feat/four 4 true
+  check "feat/four rebased on a strict base though it doesn't conflict" on_top_of_main
+  check "rebase kept #4's own two commits" own_commits feat/four "docs: four in the README;feat: add four;"
+  check "#4 merged; main has the hotfix and four.txt" merged_with hotfix.txt h
+  invariants
+}
+
+scenario_behind-contract() {
+  setup_behind package.json '{"dependencies":{"lib":"2.0.0"}}' "build: bump lib to 2"
+  step05 feat/four 4 false
+  check "feat/four rebased: package.json moved on main (base not strict, no conflict)" on_top_of_main
+  check "#4 merged; main has package.json and four.txt" merged_with package.json '{"dependencies":{"lib":"2.0.0"}}'
+  invariants
+}
+
+ALL="old-delete-branch stack rebased-base edit-fails behind-mergeable behind-conflicting behind-strict behind-contract"
 for s in ${*:-$ALL}; do
   case " $ALL " in *" $s "*) ;; *) echo "unknown scenario: $s (have: $ALL)" >&2; exit 2;; esac
   echo "$s"

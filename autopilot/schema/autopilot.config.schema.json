@@ -112,7 +112,7 @@
             },
             "strict": {
               "type": "boolean",
-              "description": "required_status_checks.strict — when false a behind branch still merges (no forced sync)."
+              "description": "required_status_checks.strict — when false a behind branch still merges: /autoship rebases only on a conflict or a moved contract. When true it rebases whenever the base moved."
             },
             "requireThreadResolution": {
               "type": "boolean",

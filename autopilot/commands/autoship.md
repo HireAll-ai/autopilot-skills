@@ -1,5 +1,5 @@
 ---
-description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — re-checks the ticket is still wanted, flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only if it moved, loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
+description: Ship + land in one — every PR this chat opened, in any repo (or only the PRs you name) — re-checks the ticket is still wanted, flips the /autodev draft PR to ready (or opens a template-complete PR directly), rebases on the base branch only on a conflict or a moved contract (or when strict protection needs it), loops the configured auto-reviewer to its pass bar, confirms required checks green, repo-aware merge, canary on the deployed env, optional --qa / --e2e (with video) automated checks, then moves the tracker ticket to the configured ship status. No human gates. Project-independent: reads .claude/autopilot.config.json.
 argument-hint: "[PR …] [deploy-url] [--qa] [--e2e] [--video] [--reconfigure]"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, AskUserQuestion, mcp__jira-server__get_issue, mcp__jira-server__get_transitions, mcp__jira-server__transition_issue, mcp__backlog__get_issue, mcp__backlog__update_issue, mcp__backlog__add_comment, mcp__backlog__list_projects, mcp__backlog__list_issues, mcp__backlog__create_issue, mcp__backlog__propose_issues, mcp__backlog__add_requirement, mcp__backlog__list_requirements, mcp__backlog__attach_video
 ---
@@ -8,10 +8,15 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Skill, TodoWrite, Agent, Ask
 
 Run this when the code is **done and you've verified it** (typically after `/autodev`). It flips the
 `/autodev` draft PR to ready (or opens the PR directly, template-complete), rebases on the base
-branch **only if it moved**, loops the configured auto-reviewer + fixes until its pass bar, confirms
-the required checks are green, merges respecting branch protection, verifies the deploy with a light
-canary (optionally an automated QA / e2e pass), then moves the tracker ticket to the configured ship
-status. **No human gates.**
+branch **only when the PR needs it** (Step 0.5), loops the configured auto-reviewer + fixes until its
+pass bar, confirms the required checks are green, merges respecting branch protection, verifies the
+deploy with a light canary (optionally an automated QA / e2e pass), then moves the tracker ticket to
+the configured ship status. **No human gates.**
+
+**Base not strict → being behind is fine; every push restarts CI and the auto-reviewer; rebase only
+on a conflict or a moved contract.** A fresh review round often finds something new and turns a green
+PR red, and on a busy repo the base moves every few minutes. A strict base (`.git.protection.strict`
+true) can't merge a behind branch, so there it is rebased as before.
 
 **Every PR this chat opened ships — not just the current repo's.** A chat often spans repos (an API
 change here, its client in a sibling repo); Step 0 collects all of them and each one runs Steps
@@ -176,23 +181,50 @@ second merge would overtake the first's deploy check). When a PR stops short:
 - a **broken deploy or real canary problem** (Step 5) halts every merge still pending — don't stack
   more merges onto a production that may be broken. Report what's left unmerged.
 
-## Step 0.5 — Commit stragglers; rebase on base only if it moved
+## Step 0.5 — Commit stragglers; rebase only when the PR needs it
 
-If `.git.protection.strict` is **false**, a slightly-behind branch still merges — don't force a sync
-every run (an unconditional rebase throws away `/autodev`'s pre-warmed CI). Do the always-safe part
-(commit stragglers); rebase **only** when the base actually moved:
+Do the always-safe part (commit stragglers), then rebase **only** for one of the reasons in step 2 —
+never just because the base moved: a rebase is a force-push, and it throws away `/autodev`'s
+pre-warmed CI and review round.
 
 1. **Clean the tree** — `git status --porcelain`. Straggling work → run `<typecheck>` first
    (type-check must pass before *any* commit), then commit it (`<subject>`). A dirty tree also blocks the rebase.
-2. Rebase only if behind, then publish:
-```bash
-git fetch origin "<base>"
-git merge-base --is-ancestor "origin/<base>" HEAD && echo "already current — no rebase" || {
-  git rebase "origin/<base>" && "${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"
-}
-git push --force-with-lease -u origin HEAD   # no-op if nothing changed (keeps pre-warmed CI); -u: the
-                                             # branch may never have been pushed (no /autodev run)
-```
+2. **Behind, and does it matter?**
+   ```bash
+   git fetch origin "<base>"
+   git merge-base --is-ancestor "origin/<base>" HEAD && echo "current" \
+     || echo "behind by $(git rev-list --count "HEAD..origin/<base>")"
+   gh pr view <PR> --json mergeable,mergeStateStatus --jq '"\(.mergeable) \(.mergeStateStatus)"'   # when behind and a PR exists
+   ```
+   `current` → no rebase. `behind` → rebase **only** when one of these holds:
+   - **strict base** — `.git.protection.strict` is true: a behind branch can't merge there;
+   - **a conflict** — `mergeable` is `CONFLICTING` or `mergeStateStatus` is `DIRTY`;
+   - **a moved contract** — the semantic-overlap check below finds shared surface this diff depends on
+     moved on `<base>`;
+   - **a stacked PR whose base PR merged in this run** — `--onto`, below;
+   - **no PR yet** (no `/autodev` run) — no CI or review has run on it yet, so a rebase restarts nothing.
+
+   None holds → **no rebase, no force-push, no `gh pr update-branch`** (a sync by another name):
+   print `behind <base> by <N>, <mergeable> <mergeStateStatus> — not rebased (base not strict)`.
+   `mergeable` still `UNKNOWN` (GitHub hasn't computed it yet) → don't rebase on a guess; Step 3 asks
+   again before the merge.
+
+   **Semantic-overlap check** — a non-textual conflict (a moved API / schema / shared-package
+   dependency) can break the merged tree even with green checks:
+   ```bash
+   git diff --name-only "HEAD...origin/<base>"   # what moved on base since this branch's base
+   ```
+   That delta touches **shared/contract surface this diff depends on** (`packages/*`, DB
+   migrations/entities, an API contract, `package.json`/lockfile) → a moved contract. Clearly
+   unrelated → not.
+3. **Rebase** (only when step 2 says so), then publish:
+   ```bash
+   git rebase "origin/<base>" && "${CLAUDE_PLUGIN_ROOT}/lib/typecheck.sh"
+   git push --force-with-lease -u origin HEAD
+   ```
+   No rebase → `git push -u origin HEAD` — publishes the stragglers as a plain fast-forward, a no-op
+   when step 1 committed nothing (`-u`: the branch may never have been pushed).
+
 **A stacked PR whose base PR merged in this run** (Step 0) rebases with `--onto` in place of the plain
 `git rebase`: `git rebase --onto "origin/<base>" <old base head>`, then `<typecheck>` and the push as
 above. `<old base head>` = the `<head-sha>` its base PR's Step 4 captured, when
@@ -250,30 +282,30 @@ Skip Step 2.1 entirely when `.review.gate == none`. Otherwise repeat until the h
      Step 4 hard-gate re-assertion refuses `--admin` while any check is non-green.
    - **Local gate still applies:** `<typecheck>` exits 0 before any commit.
 3. **Stuck score:** every comment fixed + thread resolved but the score sits below `.review.passBar`
-   → rebase on base (Step 0.5) + **one** re-review — a clean rebase is what lifts a stuck score on
-   big multi-file PRs.
+   → **don't rebase for it** — a new head only buys a fresh round that finds new things. Re-request
+   **one** review of the same head: `gh pr comment <PR> --body "<.review.mention>"`, else the
+   `.review.skill`'s own re-trigger. Still below → it won't converge: **STOP and report** as in 4.
+   The PR conflicts (Step 3) → that's the conflict path, not this one.
 4. **Before breaking, `<typecheck>` the final HEAD** (CI's type-check may be advisory), fail → fix →
    commit → push → back to 1. Then hard gate satisfied → break. After 5 outer iterations without
    convergence, **STOP** and report.
 
 ## Step 3 — Mergeable check (conflict only when base isn't strict)
 
+The base may have moved again while Step 2 ran. Ask GitHub once more, just before the merge:
 ```bash
 gh pr view <PR> --json mergeStateStatus,mergeable
 ```
 If `.git.protection.strict` is false, a plain **`BEHIND`** branch still merges — do **not**
 `gh pr update-branch` just to clear it (fires a second full CI run for nothing). Act only on a real blocker:
-- `mergeable: false` / `CONFLICTING` → rebase (Step 0.5), then **re-run the full Step 2 loop** (a
+- `CONFLICTING` / `DIRTY` → rebase (Step 0.5 step 3), then **re-run the full Step 2 loop** (a
   rebase yields a new tree). Proceed only once the hard gate holds again.
-- Otherwise (incl. a plain `BEHIND`) → a quick **semantic-overlap check** — a non-textual conflict
-  (a moved API / schema / shared-package dependency) can break the merged tree even with green checks:
-  ```bash
-  git fetch origin "<base>" -q
-  git diff --name-only "HEAD...origin/<base>"   # what moved on base since this branch's base
-  ```
-  If that delta touches **shared/contract surface this diff depends on** (`packages/*`, DB
-  migrations/entities, an API contract, `package.json`/lockfile) → **rebase + re-run Step 2**, then
-  merge. Clearly unrelated → straight to merge.
+- `BEHIND` on a strict base → the same: rebase + re-run Step 2.
+- `UNKNOWN` (GitHub still computing it) → ask once more; still `UNKNOWN` → go on as below: GitHub
+  refuses to merge a conflicting PR, and that refusal takes the conflict path above.
+- Otherwise (incl. a plain `BEHIND` when strict is false) → `git fetch origin "<base>" -q` and the
+  **semantic-overlap check** (Step 0.5) on what moved since: a moved contract → rebase + re-run
+  Step 2, then merge. Clearly unrelated → straight to merge.
 
 ## Step 4 — Merge (autonomous, repo-aware)
 
@@ -503,8 +535,10 @@ never holds up the ship; the operator's picks are filed, the rest is printed.
   --delete-branch` would delete it first, and GitHub then closes them. With `.git.deleteBranchOnMerge`,
   a two-PR stack ends with the second PR open and based on `<base>`, rebased with
   `git rebase --onto` (Step 0.5), and shipped in turn.
-- Intentionally uses repo-aware `--admin`/`update-branch` (gated on config) so it never stalls on
-  strict protection. The e2e videos (Step 5.6, backlog), the ticket move (Step 6), the follow-ups
-  the operator picks and the Intake entries (Step 7) are the only places `/autoship` writes to the tracker.
+- Repo-aware on purpose, gated on config: a behind branch is synced only when `.git.protection.strict`
+  needs it (otherwise only on a conflict or a moved contract), and `--admin` is used only with
+  `adminBypassAllowed` — so it neither stalls on strict protection nor churns a non-strict base.
+- The e2e videos (Step 5.6, backlog), the ticket move (Step 6), the follow-ups the operator picks and
+  the Intake entries (Step 7) are the only places `/autoship` writes to the tracker.
 - Project-independent: all facts from `.claude/autopilot.config.json`. To share the commands
   themselves across repos, install the `autopilot` plugin: `claude plugin marketplace add HireAll-ai/autopilot-skills`.

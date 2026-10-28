@@ -168,6 +168,13 @@ manual review trigger: the auto-reviewer runs once `/autoship` flips the PR to r
 `backlog` with a `<KEY>`: comment the draft PR URL on the issue (`<mcp>__add_comment`) — a comment, not
 a status change; the tracker follows the workspace's status from Constructor on its own.
 
+**Don't rebase on `<base>` just because it moved** — not before the push, not after: a rebase
+force-pushes and restarts the CI run you're pre-warming. Rebase only for a reason `/autoship` Step 0.5
+accepts: `gh pr view --json mergeable` says `CONFLICTING` (GitHub runs no `pull_request` CI on a
+conflicting PR, so there's nothing to keep), or a contract this diff depends on moved on `<base>`.
+Then rebase, `<typecheck>`, `git push --force-with-lease`. A strict base is `/autoship`'s to sync,
+just before its merge.
+
 ## Handoff — print, then STOP
 
 ```
