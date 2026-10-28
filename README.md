@@ -71,7 +71,7 @@ autopilot/                          # the plugin
   lib/follow-ups.md                           # end-of-run follow-up tasks (read on demand)
   lib/record-e2e.mjs                          # Playwright scenario runner + video
   schema/autopilot.config.schema.json
-  test/stacked-merge.sh, test/bin/gh          # local check of /autoship's stack merge (bare repo + gh stub)
+  test/stacked-merge.sh, test/bin/gh          # local check of /autoship's rebase rule + stack merge (bare repo + gh stub)
   test/config.sh                              # smoke test of autopilot-config.sh + typecheck.sh (temp repos, offline)
   test/verify-deploy.sh                       # smoke test of verify-deploy.sh (temp repos, curl/gh stubs)
   README.md

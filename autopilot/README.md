@@ -180,6 +180,19 @@ merge still pending. A ticket shared by several PRs moves only once all of them 
 - Each repo needs its own `/autopilot:init`; an uninitialized one is left out and reported.
 - A PR whose branch isn't checked out anywhere locally is left out — `/autoship` never clones.
 
+## Rebasing (`/autoship`, `/autodev`)
+
+**Base not strict → being behind is fine; every push restarts CI and the auto-reviewer; rebase only
+on a conflict or a moved contract.** With `git.protection.strict` false, `/autoship` merges a branch
+that is behind but mergeable as it is — no rebase, no force-push, no `gh pr update-branch`. It
+rebases when GitHub reports the PR `CONFLICTING` / `DIRTY`, when shared surface the diff depends on
+(`packages/*`, migrations, an API contract, `package.json` / lockfile) moved on the base, for a
+stacked PR whose base PR just merged (`--onto`), and when the PR doesn't exist yet. A strict base
+can't merge a behind branch, so there it rebases whenever the base moved. A review score stuck below
+the pass bar gets one re-review of the same head, not a rebase. `/autodev` follows the same rule
+before its draft PR, so the CI run it pre-warms isn't thrown away. The why and the pitfalls:
+[`docs/rebasing.md`](../docs/rebasing.md).
+
 ## Runtime helpers
 
 | script | used by | what it saves |
@@ -192,6 +205,8 @@ on another checkout than the cwd — how `/autoship` handles a PR in a sibling r
 
 Before changing `/autoship`'s merge steps (stack order, Steps 0.5, 4, 4.1), run `autopilot/test/stacked-merge.sh`: it ships a
 PR stack against a local bare repo and a `gh` stub, and exits 1 if a PR got closed, calls ran out of order or a branch was deleted under an open PR.
+It also moves `main` under a PR and runs Step 0.5's rebase rule: behind but mergeable on a non-strict base, the PR must merge with its
+head unchanged (no rebase, no force-push); conflicting, on a strict base, or with `package.json` moved, it must be rebased first.
 Before changing `autopilot-config.sh` or `typecheck.sh`, run `autopilot/test/config.sh` — under `/bin/bash` too on a Mac (3.2,
 the bash a stock Mac runs them with): in throwaway repos and offline (`gh`, `curl`, `npx` stubbed), it checks `load`'s exit
 codes, `get`, `validate` (with its `timeoutSeconds` check) and `timeout`, `AUTOPILOT_REPO`, the typecheck cache and `detect`'s backlog probe (a `curl` answering from canned

@@ -2,6 +2,8 @@
 # gh stub for test/stacked-merge.sh. PRs are files under $SIM/prs/<n> (state, base, head, title,
 # headoid, merge); the remote is the bare repo $SIM/origin.git. Every call is appended to
 # $SIM/calls.log. Covers only what /autoship's merge steps call: gh pr view | list | edit | merge.
+# `gh pr view --json mergeable,mergeStateStatus` works them out from the bare repo, as GitHub does:
+# MERGEABLE CLEAN (base in the head's history), MERGEABLE BEHIND, or CONFLICTING DIRTY.
 # GH_STUB_FAIL_EDIT=<n> makes `gh pr edit` of PR <n> fail.
 set -euo pipefail
 : "${SIM:?SIM not set}"
@@ -22,14 +24,28 @@ pr_json() {
       headRefOid:$oid,mergeCommit:(if $merge=="" then null else {oid:$merge} end)}'
 }
 out() { if [ -n "$JQ" ]; then jq -r "$JQ"; else cat; fi; }
+# "<mergeable> <mergeStateStatus>" of PR $1: a test merge of its head into its base in a scratch clone
+merge_state() {
+  local base head tmp st
+  base=$(get "$1" base); head=$(get "$1" head)
+  if git --git-dir="$SIM/origin.git" merge-base --is-ancestor "refs/heads/$base" "refs/heads/$head"; then
+    echo "MERGEABLE CLEAN"; return
+  fi
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/gh-stub.XXXXXX")
+  git clone -q "$SIM/origin.git" "$tmp/c"
+  git -C "$tmp/c" checkout -q "$base"
+  if git -C "$tmp/c" merge -q --no-commit --no-ff "origin/$head" >/dev/null 2>&1; then st="MERGEABLE BEHIND"
+  else st="CONFLICTING DIRTY"; fi
+  rm -rf "$tmp"; echo "$st"
+}
 
 [ "${1:-}" = pr ] || { echo "gh stub: only 'gh pr …'" >&2; exit 2; }
 cmd=$2; shift 2
-JQ="" BASE="" STATE="open" REF="" STRAT="" DEL=0
+JQ="" FIELDS="" BASE="" STATE="open" REF="" STRAT="" DEL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --jq|-q) JQ=$2; shift 2;;
-    --json) shift 2;;
+    --json) FIELDS=$2; shift 2;;
     --base|-B) BASE=$2; shift 2;;
     --state|-s) STATE=$2; shift 2;;
     --squash|--merge|--rebase) STRAT=${1#--}; shift;;
@@ -41,7 +57,13 @@ done
 
 case "$cmd" in
   view)
-    n=$(num "$REF"); refresh_oid "$n"; pr_json "$n" | out;;
+    n=$(num "$REF"); refresh_oid "$n"
+    case ",$FIELDS," in
+      *,mergeable,*|*,mergeStateStatus,*)
+        read -r m ms < <(merge_state "$n")
+        pr_json "$n" | jq --arg m "$m" --arg ms "$ms" '. + {mergeable:$m, mergeStateStatus:$ms}' | out;;
+      *) pr_json "$n" | out;;
+    esac;;
   list)
     for f in "$SIM"/prs/*; do
       n=${f##*/}; refresh_oid "$n"
